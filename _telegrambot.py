@@ -20,7 +20,7 @@ async def handle_update(message):
         text = message.text.lower()
         isv.update_sheets(text)
         await reply(message, "Obnovjenje jest skončeno")
-    except:
+    except Exception as e:
         await reply(message, "Nažalj, moj programist ne primětil někaku pogrěšku. Mečtam o času, kogda roboti počnut pisati svoj kod sami.")
 
 
@@ -83,7 +83,7 @@ async def handle_najdtislovo(message):
             else:
                 text = str(item).replace("<", "").replace(">", "")
                 await reply(message, text, is_disable=True)
-    except:
+    except Exception as e:
         await reply(message, "Nažalj, moj programist ne primětil někaku pogrěšku. Mečtam o času, kogda roboti počnut pisati svoj kod sami.")
 
 
@@ -187,6 +187,7 @@ async def handle_pouka9(message):
 
 
 async def main():
+    await bot.remove_webhook()
     await bot.polling(none_stop=True)
 #    await bot.infinity_polling()
 

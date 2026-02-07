@@ -8,6 +8,7 @@ import transliteration as transl
 import lang_detect
 import lemmatizer
 import wiki
+import urllib.parse
 
 sheet_links = {
   'words': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRsEDDBEt3VXESqAgoQLUYHvsA5yMyujzGViXiamY7-yYrcORhrkEl5g6JZPorvJrgMk6sjUlFNT4Km/pub?output=csv',
