@@ -74,7 +74,7 @@ async def handle_najdtislovo(message):
                 
                 if image_url:
                     try:
-                        await bot.send_photo(message.chat.id, image_url)
+                        await bot.send_photo(message.chat.id, image_url, reply_to_message_id=message.message_id)
                     except Exception as e:
                         print(f"DEBUG: Failed to send photo: {e}")
                 

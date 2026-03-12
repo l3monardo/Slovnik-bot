@@ -108,7 +108,7 @@ def translations_card(row, sheet_name: str, with_meta: bool = False):
     }
     title = f"{i+2} {word_is_in[sheet_name]}"
     output = f"## [{title}](<{bots.link_na_slovo(i, sheet_name)}>)\n\n"
-    output += f"**{ bots.formatizer( row['isv'][0] )}**\n"
+    output += f"**{ format_words_with_links(row['isv'][0], 'isv') }**\n"
     for col in languages:
         words = row[col][0]
         output += f"**`{col}` **{ format_words_with_links(words, col) }\n"
@@ -158,6 +158,9 @@ def wiktionary_url(lang: str, word: str) -> str:
     title = wiktionary_title(word)
     if not title:
         return ""
+    if lang == 'isv':
+        title = transl.transliteration(title, 'isv_to_standard')
+        return f"https://incubator.wikimedia.org/wiki/Wt/isv/{urllib.parse.quote(title)}"
     return f"https://{lang}.wiktionary.org/wiki/{urllib.parse.quote(title)}"
 
 def format_words_with_links(words: str, lang: str) -> str:
@@ -179,7 +182,11 @@ def format_words_with_links(words: str, lang: str) -> str:
     if not linked_parts:
         return bots.formatizer(words)
     sep = "; " if ";" in words else ", "
-    return " " + sep.join(linked_parts)
+    result = sep.join(linked_parts)
+    # Don't add a leading space for the primary ISV word formatting
+    if lang == 'isv':
+        return result
+    return " " + result
 
 def primary_wiktionary_word(words: str) -> str | None:
     """Get the first valid word from a translation cell for Wiktionary lookup"""
