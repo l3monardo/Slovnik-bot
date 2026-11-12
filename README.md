@@ -8,7 +8,7 @@ A Telegram (and Discord) bot for the [Interslavic dictionary](https://interslavi
 - **Intelligibility under every word.** The community votes from the site, overall and by native language (✅ ⚠️ 🚫).
 - **Declension and conjugation.** Use a command keyword or the button under the word.
 - **Explanation.** A button shows the dictionary's definitions in the language you asked in and in English, with the other languages folded underneath.
-- **Links to interslavic.app** at the bottom of every message and on every word, replacing the old Google Sheet links. Words that exist only in the unofficial lists keep their sheet link, since the site has no page for them.
+- **Links to interslavic.app** at the bottom of every message (after the 🏴 from the [InterslavicApp emoji pack](https://t.me/addemoji/InterslavicApp)) and on every word, replacing the old Google Sheet links. Words that exist only in the unofficial lists keep their sheet link, since the site has no page for them.
 - **Cyrillic or Latin.** A Cyrillic command or keyword (`/ру`, `спр`, `скл`) gives Cyrillic tables, labels and buttons.
 
 ## Commands
@@ -56,6 +56,9 @@ For Discord, create an application at https://discord.com/developers/application
 | `SITE_API` | Site API address. Default `https://interslavic-api.vercel.app/api`. |
 | `SITE_API_TIMEOUT` | Seconds to wait for the site API. Default 6. |
 | `TELEGRAM_API` | Address of your own Bot API server. |
+| `SITE_EMOJI=0` | Use the ordinary 🏴 before the link instead of the custom emoji. |
+| `SITE_EMOJI_ID` | ID of the custom emoji to use; skips the lookup in the pack. |
+| `SITE_EMOJI_SET` | Custom emoji pack to look in. Default `InterslavicApp`. |
 
 ## How it works
 
@@ -67,6 +70,8 @@ For Discord, create an application at https://discord.com/developers/application
 | `isv_tools.py` | Search, cards, word links and data loading. |
 | `bots.py`, `_disnake.py` | Shared search code and the Discord bot. |
 | `pouky.yaml` | Help and lesson texts. |
+
+**The emoji before the link.** At start the bot reads the `InterslavicApp` pack (`getStickerSet`) and takes its 🏴. Telegram lets a bot send custom emoji only when the bot's owner has Telegram Premium. If Telegram refuses the custom emoji, the bot resends the answer with the ordinary 🏴 and keeps using it.
 
 Forms tables come from the site's own code through the API, so they always match interslavic.app.
 
