@@ -21,6 +21,10 @@ import transliteration as transl
 
 SITE_URL = bots.SITE_URL
 SITE_NAME = "interslavic.app"
+# The emoji before the link: a custom emoji of the pack t.me/addemoji/InterslavicApp when the bot found its
+# id at start (_telegrambot.load_site_emoji), else this ordinary one
+SITE_EMOJI = "🏴"
+SITE_EMOJI_ID = None
 CLASSIC_MAX = 3900  # a message holds 4096 characters
 
 
@@ -71,8 +75,21 @@ def D(summary: str, blocks):
     return ("details", summary, blocks)
 
 
+def site_emoji_html() -> str:
+    if SITE_EMOJI_ID:
+        return f'<tg-emoji emoji-id="{SITE_EMOJI_ID}">{SITE_EMOJI}</tg-emoji>'
+    return SITE_EMOJI
+
+
+def site_link_html() -> str:
+    """The emoji and the link to interslavic.app."""
+    return f"{site_emoji_html()} {link(SITE_URL, SITE_NAME)}"
+
+
 def footer():
-    return ("footer", link(SITE_URL, SITE_NAME))
+    """The link to interslavic.app. Made when the message is rendered, so that a retry after Telegram
+    refused the custom emoji goes out without it."""
+    return ("footer",)
 
 
 def th(inline: str, colspan: int = 1, rowspan: int = 1) -> dict:
@@ -118,7 +135,7 @@ def render_rich(blocks, level: int = 2) -> str:
             else:
                 out.append(f"<p><b>{block[1]}</b></p>{inner}")
         elif kind == "footer":
-            out.append(f"<footer>{block[1]}</footer>" if level >= 2 else f"<p>{block[1]}</p>")
+            out.append(f"<footer>{site_link_html()}</footer>" if level >= 2 else f"<p>{site_link_html()}</p>")
     return "".join(out)
 
 
@@ -212,7 +229,7 @@ def _classic_parts(blocks):
             parts.append(f"<b>{block[1]}</b>")
             parts.extend(_classic_parts(block[2]))
         elif kind == "footer":
-            parts.append(block[1])
+            parts.append(site_link_html())
     return [part for part in parts if part]
 
 
@@ -566,8 +583,13 @@ def error_doc(text: str) -> list:
 
 # ── texts the bot already had (Markdown written for Discord) ───
 
-FOOTER_MARKDOWN_V2 = "\n\n[interslavic\\.app](https://interslavic.app)"
-FOOTER_PLAIN = "\n\ninterslavic.app"
+def footer_markdown_v2() -> str:
+    emoji = f"![{SITE_EMOJI}](tg://emoji?id={SITE_EMOJI_ID})" if SITE_EMOJI_ID else SITE_EMOJI
+    return f"\n\n{emoji} [interslavic\\.app]({SITE_URL})"
+
+
+def footer_plain() -> str:
+    return f"\n\n{SITE_EMOJI} {SITE_NAME}"
 
 
 def rich_markdown(text: str, image: str = "") -> str:
@@ -584,5 +606,5 @@ def rich_markdown(text: str, image: str = "") -> str:
             paragraphs.extend(lines)
     if image:
         paragraphs.insert(0, f"![]({image})")
-    paragraphs.append(f'<footer><a href="{SITE_URL}">{SITE_NAME}</a></footer>')
+    paragraphs.append(f'<footer>{site_link_html()}</footer>')
     return "\n\n".join(paragraphs)

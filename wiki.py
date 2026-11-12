@@ -68,48 +68,6 @@ async def wiki_summary(lang, text):
                 first_sentence = take_first_sentence(summaries[i]['extract'].replace('\n', ' '))
                 result.append(f"`{lang}`: {first_sentence}")
         return "\n".join(result)
-
-async def fetch_wiktionary_image_title(session, title):
-    """Fetch the first image filename from English Wiktionary page"""
-    headers = {'User-Agent': 'MashinaBot/1.0 (https://github.com/l3monardo/Mashina-bot)'}
-    page = urllib.parse.quote(title)
-    url = f"https://en.wiktionary.org/w/api.php?action=parse&format=json&page={page}&prop=images"
-    async with session.get(url, ssl=False, headers=headers) as response:
-        data = await response.json()
-    images = data.get("parse", {}).get("images", []) or []
-    if not images:
-        return None
-    for image in images:
-        lower = image.lower()
-        # Skip logo images and non-photo formats like SVG
-        if any(x in lower for x in ["wiktionary-logo", "commons-logo", ".svg"]):
-            continue
-        return f"File:{image}"
-    return None
-
-async def fetch_wiktionary_image_url(session, image_title):
-    """Get the direct URL for a Wiktionary image"""
-    headers = {'User-Agent': 'MashinaBot/1.0 (https://github.com/l3monardo/Mashina-bot)'}
-    title = urllib.parse.quote(image_title)
-    url = f"https://en.wiktionary.org/w/api.php?action=query&format=json&titles={title}&prop=imageinfo&iiprop=url"
-    async with session.get(url, ssl=False, headers=headers) as response:
-        data = await response.json()
-    page = next(iter(data.get("query", {}).get("pages", {}).values()), None)
-    if not isinstance(page, dict):
-        return None
-    imageinfo = page.get("imageinfo", [])
-    if not imageinfo:
-        return None
-    return imageinfo[0].get("url")
-
-async def wiktionary_first_image(title):
-    """Get the first image URL from an English Wiktionary page"""
-    async with aiohttp.ClientSession() as session:
-        image_title = await fetch_wiktionary_image_title(session, title)
-        if not image_title:
-            return None
-        return await fetch_wiktionary_image_url(session, image_title)
-
 if __name__ == "__main__":
     lang = "en"
     title = "russia"

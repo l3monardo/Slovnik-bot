@@ -86,6 +86,8 @@ async def send_rich(message, rich_message: dict, mark, buttons=None):
         Rich.worked.add(mark)
         return True
     refused(mark, code, description)
+    if drop_site_emoji(description):
+        return False
     if code == 404:
         # this Bot API server does not know rich messages at all
         Rich.level, Rich.markdown = 0, False
@@ -111,8 +113,12 @@ async def send_doc(message, blocks, buttons=None):
     """An answer made of blocks (tg_format): as a rich message with real tables, else as ordinary messages."""
     print(fmt.render_plain(blocks))
     for level in (2, 1):
-        if level <= Rich.level and await send_rich(message, {'html': fmt.render_rich(blocks, level)}, level, buttons):
-            return True
+        for _ in range(2):  # (once more when Telegram refused only the custom emoji)
+            had_emoji = fmt.SITE_EMOJI_ID
+            if level <= Rich.level and await send_rich(message, {'html': fmt.render_rich(blocks, level)}, level, buttons):
+                return True
+            if not had_emoji or fmt.SITE_EMOJI_ID:
+                break
     thread = getattr(message, 'message_thread_id', None) if getattr(message, 'is_topic_message', None) else None
     try:
         parts = fmt.render_classic(blocks)
@@ -124,6 +130,8 @@ async def send_doc(message, blocks, buttons=None):
         return True
     except Exception as e:
         print(f"Telegram refused the ordinary message: {e}")
+        if drop_site_emoji(str(e)):
+            return await send_doc(message, blocks, buttons)
     await bot.send_message(
         message.chat.id, fmt.render_plain(blocks), reply_to_message_id=message.message_id,
         allow_sending_without_reply=True, reply_markup=keyboard(buttons), message_thread_id=thread)
@@ -162,19 +170,27 @@ async def reply(message, text, is_disable=False, image=''):
     """One of the bot's Markdown texts (a note, a lesson) with the link to interslavic.app under it."""
     print(text)
     text = text.replace("<", "").replace(">", "")
-    if Rich.markdown:
-        if image and await send_rich(message, {'markdown': fmt.rich_markdown(text, image)}, 'markdown'):
+    picture = image
+    for _ in range(3):
+        had_emoji = fmt.SITE_EMOJI_ID
+        if not Rich.markdown:
+            break
+        if await send_rich(message, {'markdown': fmt.rich_markdown(text, picture)}, 'markdown'):
             return True
-        # (a picture Telegram cannot fetch refuses the whole message: once more without it)
-        if Rich.markdown and await send_rich(message, {'markdown': fmt.rich_markdown(text)}, 'markdown'):
-            return True
+        if had_emoji and not fmt.SITE_EMOJI_ID:
+            continue  # refused only the custom emoji: the same again without it
+        if not picture:
+            break
+        picture = ''  # a picture Telegram cannot fetch refuses the whole message: once more without it
     try:
         picture = f"[​]({image})\n" if image else ''
-        await bot.reply_to(message, picture + markdown_v2(text) + fmt.FOOTER_MARKDOWN_V2,
+        await bot.reply_to(message, picture + markdown_v2(text) + fmt.footer_markdown_v2(),
                            parse_mode="MarkdownV2", disable_web_page_preview=is_disable or not image)
     except Exception as e:
         print(f"Telegram refused the MarkdownV2 message: {e}")
-        await bot.reply_to(message, text + fmt.FOOTER_PLAIN, disable_web_page_preview=True)
+        if drop_site_emoji(str(e)):
+            return await reply(message, text, is_disable, image)
+        await bot.reply_to(message, text + fmt.footer_plain(), disable_web_page_preview=True)
     return True
 
 
@@ -220,16 +236,6 @@ def split_forms_word(slova: str):
     return slova, None, 'latn'
 
 
-async def word_image(item):
-    en_word = item.get("en_word")
-    if not en_word:
-        return None
-    try:
-        return await wiki.wiktionary_first_image(en_word)
-    except Exception:
-        return None
-
-
 async def send_forms(message, card: dict, script: str):
     """The declension or conjugation of a word, as interslavic.app shows it."""
     if not fmt.forms_kind(card["isv"], card.get("partOfSpeech", "")):
@@ -255,19 +261,9 @@ async def send_explanation(message, card: dict, lang: str, script: str):
 
 
 async def send_word(message, item: dict, script: str):
-    """A word: its picture (when Wiktionary has one), then its card with the buttons."""
+    """A word: its card with the statistics and the buttons."""
     card = item["card"]
-    official = card["sheet"] == "words"
-    image_url, stats = await asyncio.gather(
-        word_image(item),
-        site_api.intelligibility(card["id"], card["isv"]) if official else asyncio.sleep(0),
-    )
-    if image_url:
-        try:
-            await bot.send_photo(message.chat.id, image_url, reply_to_message_id=message.message_id,
-                                 caption=fmt.link(fmt.SITE_URL, fmt.SITE_NAME), parse_mode='HTML')
-        except Exception as e:
-            print(f"DEBUG: Failed to send photo: {e}")
+    stats = await site_api.intelligibility(card["id"], card["isv"]) if card["sheet"] == "words" else None
     await send_doc(message, fmt.word_doc(card, script, stats), fmt.word_buttons(card, script))
 
 
@@ -502,9 +498,51 @@ async def want_updates():
         print(f"getUpdates: {type(e).__name__}: {e}")
 
 
+# The emoji before the interslavic.app link: from the custom emoji pack t.me/addemoji/InterslavicApp.
+# Bots may use custom emoji when their owner has Telegram Premium (Bot API 9.4); otherwise, or when the
+# pack cannot be read, the link gets the ordinary 🏴. SITE_EMOJI_ID=<id> skips the lookup, SITE_EMOJI=0
+# turns the custom emoji off.
+SITE_EMOJI_SET = os.getenv('SITE_EMOJI_SET', 'InterslavicApp')
+
+
+async def load_site_emoji():
+    if os.getenv('SITE_EMOJI', '1') == '0':
+        return
+    if os.getenv('SITE_EMOJI_ID'):
+        fmt.SITE_EMOJI_ID = os.getenv('SITE_EMOJI_ID')
+        return
+    if Rich.session is None or Rich.session.closed:
+        Rich.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
+    url = f"{TELEGRAM_API}/bot{settings['token_telegram']}/getStickerSet"
+    try:
+        async with Rich.session.post(url, json={'name': SITE_EMOJI_SET}) as response:
+            data = await response.json(content_type=None)
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+        print(f"getStickerSet: {type(e).__name__}: {e}")
+        return
+    stickers = (data.get('result') or {}).get('stickers') or [] if isinstance(data, dict) else []
+    stickers = [st for st in stickers if st.get('custom_emoji_id')]
+    if not stickers:
+        print(f"getStickerSet {SITE_EMOJI_SET}: no custom emoji ({data.get('description', '') if isinstance(data, dict) else data})")
+        return
+    chosen = next((st for st in stickers if st.get('emoji') == fmt.SITE_EMOJI), stickers[0])
+    fmt.SITE_EMOJI_ID = chosen['custom_emoji_id']
+    print(f"Site emoji: {fmt.SITE_EMOJI_ID} from {SITE_EMOJI_SET}")
+
+
+def drop_site_emoji(description: str) -> bool:
+    """Telegram refused the custom emoji (the bot may not use them): the plain one from now on."""
+    if fmt.SITE_EMOJI_ID and 'emoji' in (description or '').lower():
+        print("Telegram refused the custom emoji: using the plain one from now on")
+        fmt.SITE_EMOJI_ID = None
+        return True
+    return False
+
+
 async def main():
     await bot.remove_webhook()
     await want_updates()
+    await load_site_emoji()
     await bot.polling(none_stop=True)
 #    await bot.infinity_polling()
 
