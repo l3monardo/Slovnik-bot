@@ -21,7 +21,9 @@ sheet_links = {
 
 fraznik_link = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTIevV03tPoLIILAx4DqHH6QetiiYb13xMiQ7HMvvleWLjveoJ6uayNIDLd0cKUMj9TtNsl2XDsZR8w/pub?gid=0&single=true&output=csv',
 sheets = {key: False for key in sheet_links.keys()}
-columns = [ 'id', 'isv', 'partOfSpeech', 'en', 'ru', 'be', 'uk', 'pl', 'cs', 'sk', 'bg', 'mk', 'sr', 'hr', 'sl', 'frequency']
+columns = [ 'id', 'isv', 'addition', 'partOfSpeech', 'en', 'ru', 'be', 'uk', 'pl', 'cs', 'sk', 'bg', 'mk', 'sr', 'hr', 'sl', 'frequency', 'intelligibility']
+# columns added later: a file saved before them is downloaded again (see load_sheet)
+new_columns = {'words': ['addition', 'intelligibility']}
 langs = "isv en ru uk be pl cs sk bg mk sr hr sl".split(' ')
 
 brackets_regex1 = re.compile( r" \(.*\)" )
@@ -57,15 +59,29 @@ def load_sheet(tabela_name: str, update: bool):
     tabela_name_parquet = tabela_name+".parquet"
     if update or not os.path.isfile(tabela_name_parquet):
         print(f'Sheet {tabela_name} is downloading ...')
-        df = pl.read_csv(sheet_links[tabela_name], separator=",", ignore_errors=True, dtypes={k: str for k in columns} ).fill_null(' ')
+        # every column as text (naming the text columns one by one fails when a sheet lacks some of them)
+        df = pl.read_csv(sheet_links[tabela_name], separator=",", ignore_errors=True, infer_schema_length=0 ).fill_null(' ')
         if tabela_name != 'fraznik': 
             cols = [i for i in df.columns if (i in columns) ]
             df = df.select(cols)
+        for column in new_columns.get(tabela_name, []):
+            if column not in df.columns:
+                df = df.with_columns(pl.lit(' ').alias(column))
         df = prepare_slovnik(df, tabela_name)      
         df.write_parquet(tabela_name_parquet)
         return df
     print( f"Found {tabela_name_parquet} file, using it")
-    return pl.read_parquet(tabela_name_parquet)
+    df = pl.read_parquet(tabela_name_parquet)
+    missing = [c for c in new_columns.get(tabela_name, []) if c not in df.columns]
+    if missing:
+        # the saved file is from before these columns were used: get the sheet again,
+        # and go on with the old file when that is not possible right now
+        print(f"{tabela_name_parquet} has no {', '.join(missing)}: downloading the sheet again ...")
+        try:
+            return load_sheet(tabela_name, True)
+        except Exception as e:
+            print(f"Could not download {tabela_name}: {e}")
+    return df
 
 def load_all_sheets(sheet_names=sheets.keys(), update=False):
     for sheetname in sheet_names:
@@ -96,49 +112,98 @@ def update_sheets(text: str):
 
 
 
-def translations_card(row, sheet_name: str, with_meta: bool = False):
-    i = row['index'][0]
-    languages = "en ru be uk pl cs sk bg mk sr hr sl".split(" ")
-    word_is_in = {
+card_languages = "en ru be uk pl cs sk bg mk sr hr sl".split(" ")
+word_is_in = {
     'words': 'v slovniku',
     'suggestions': 'v spisu novyh slov',
     'Wiki list': 'v tabelě "Wiki list"',
     'CogNet': 'v tabelě "CogNet"',
     'Cognates': 'v tabelě "Cognates"',
+}
+
+def cell(row, column: str) -> str:
+    """A cell of a one-row table as text; '' when the sheet has no such column or the cell is empty."""
+    if column not in row.columns:
+        return ''
+    value = row[column][0]
+    return value.strip() if isinstance(value, str) else ''
+
+def word_link(row, sheet_name: str, lang: str = 'en') -> str:
+    """Where the title of a card leads: the word in the dictionary on interslavic.app; a word of the
+    other lists, which the site does not have, to its row in the Google Sheet."""
+    if sheet_name == 'words':
+        return bots.link_na_slovnik(cell(row, 'id'), lang)
+    return bots.link_na_slovo(row['index'][0], sheet_name)
+
+def card_data(row, sheet_name: str, lang: str = 'en') -> dict:
+    """The card as data: what the Telegram bot shows as a table."""
+    i = row['index'][0]
+    return {
+        "sheet": sheet_name,
+        "id": cell(row, 'id'),
+        "isv": cell(row, 'isv'),
+        "addition": cell(row, 'addition'),
+        "partOfSpeech": cell(row, 'partOfSpeech'),
+        "intelligibility": cell(row, 'intelligibility'),
+        "translations": [(col, cell(row, col)) for col in card_languages],
+        "title": f"{i+2} {word_is_in[sheet_name]}",
+        "link": word_link(row, sheet_name, lang),
+        "lang": lang,
     }
+
+def translations_card(row, sheet_name: str, with_meta: bool = False, lang: str = 'en'):
+    i = row['index'][0]
+    languages = card_languages
     title = f"{i+2} {word_is_in[sheet_name]}"
-    output = f"## [{title}](<{bots.link_na_slovo(i, sheet_name)}>)\n\n"
+    output = f"## [{title}](<{word_link(row, sheet_name, lang)}>)\n\n"
     output += f"**{ format_words_with_links(row['isv'][0], 'isv') }**\n"
     for col in languages:
         words = row[col][0]
         output += f"**`{col}` **{ format_words_with_links(words, col) }\n"
     output += f"\n`.id {row['id'][0]}`"
     if with_meta:
-        return {"text": output, "en_word": primary_wiktionary_word(row['en'][0])}
+        return {"kind": "word", "text": output, "en_word": primary_wiktionary_word(row['en'][0]),
+                "card": card_data(row, sheet_name, lang)}
     return output
 
 
-def words_list_card(sheet, contain = False):
-    result = f"**Najdeno {len(sheet)} slov(a), vy možete vyzvati jih prikazom `.id`:**\n\n"
+def words_list_card(sheet, contain = False, with_meta: bool = False, lang: str = 'en'):
+    title = f"Najdeno {len(sheet)} slov(a), vy možete vyzvati jih prikazom `.id`:"
     if contain:
-        result = f"**Najdeno {len(sheet)} slov(a):**\n\n"
+        title = f"Najdeno {len(sheet)} slov(a):"
+    result = f"**{title}**\n\n"
+    rows = []
+    more = False
     for i in range(0, len(sheet)):
         new_row = f"{sheet['isv'][i]} (`.id {sheet['id'][i]}`)\n"
         if len(result) + len(new_row) < 600:
             result += new_row
+            translation = sheet[lang][i] if lang in sheet.columns and lang != 'isv' else ''
+            rows.append({"isv": sheet['isv'][i], "id": sheet['id'][i],
+                         "translation": translation.strip() if isinstance(translation, str) else ''})
         else:
             result += "\n*I tako dalje....*"
+            more = True
             break
+    if with_meta:
+        return {"kind": "list", "text": result, "title": title, "rows": rows, "more": more,
+                "lang": lang if lang in sheet.columns and lang != 'isv' else ''}
     return result
 
 
 
-def phrasebook_card(i: int, tabela):
-    markdown = "# Rezultat iz [fraznika](https://gorlatoff.github.io/fraznik.html)\n\n"
+fraznik_url = "https://gorlatoff.github.io/fraznik.html"
+
+def phrasebook_card(i: int, tabela, with_meta: bool = False):
+    markdown = f"# Rezultat iz [fraznika]({fraznik_url})\n\n"
+    fields = []
     for col in tabela.columns[0:8]:
         cell = tabela[col][i]
         if cell != " ":
             markdown += f"## {col}\n{cell}\n\n"
+            fields.append((col, cell))
+    if with_meta:
+        return {"kind": "phrase", "text": markdown, "fields": fields}
     return markdown
 
 def split_by_coma(text: str) -> list:
@@ -295,7 +360,9 @@ async def mashina_search(slova: str, lang: str, with_meta: bool = False):
     print(slova, lang)
     messages = []
     def add_message(text: str):
-        messages.append({"text": text} if with_meta else text)
+        messages.append({"kind": "note", "text": text} if with_meta else text)
+    # the language the card's link and list show next to Interslavic
+    card_lang = lang if lang in card_languages else 'en'
 
     lang_normalized = lang + '_normalized'
     if lang == 'id':
@@ -308,14 +375,14 @@ async def mashina_search(slova: str, lang: str, with_meta: bool = False):
         fraznik_results = search_in_phrasebook(slova, lang_normalized)
         if not fraznik_results.is_empty():
             for i in range(0, len(fraznik_results)):
-                add_message(phrasebook_card(i, fraznik_results))
+                messages.append(phrasebook_card(i, fraznik_results, with_meta=with_meta))
         length = len(result)
         if length <= 3:
             for i in range(0, len(result)):
-                messages.append(translations_card(result[i:i+1], 'words', with_meta=with_meta))
+                messages.append(translations_card(result[i:i+1], 'words', with_meta=with_meta, lang=card_lang))
             return messages
         result = sort_by_distance(slova, lang_normalized, result)
-        add_message(words_list_card(result))
+        messages.append(words_list_card(result, with_meta=with_meta, lang=card_lang))
         return messages
     result = search_fuzzy(slova, sheets['words'][lang])
     if result:
@@ -334,7 +401,7 @@ async def mashina_search(slova: str, lang: str, with_meta: bool = False):
     result = filter_contain(slova, lang_normalized, sheets['words'])
     if not result.is_empty():
         result = sort_by_distance(slova, lang_normalized, result)
-        add_message(words_list_card(result, contain=True))
+        messages.append(words_list_card(result, contain=True, with_meta=with_meta, lang=card_lang))
         return messages
     optional_sheets = list(sheets.keys())[1:]
     optional_sheets.remove('fraznik')
@@ -344,7 +411,7 @@ async def mashina_search(slova: str, lang: str, with_meta: bool = False):
         if not result.is_empty():
             success = True
             for i in range(0, len(result)):
-                messages.append(translations_card(result[i:i+1], sheet_name, with_meta=with_meta))
+                messages.append(translations_card(result[i:i+1], sheet_name, with_meta=with_meta, lang=card_lang))
     if success:
         return messages
     if not lang_detect.language_verify(slova, lang):
@@ -352,13 +419,27 @@ async def mashina_search(slova: str, lang: str, with_meta: bool = False):
         add_message(answer)
         return messages
     if lang in wiki.SUPPORTED_WIKIS:
-        wiki_result = await wiki.wiki_titles(lang, slova)
+        try:
+            wiki_result = await wiki.wiki_titles(lang, slova)
+        except Exception as e:
+            # Wikipedia cannot be reached: the answer is still "nothing found"
+            print(f"wiki: {type(e).__name__}: {e}")
+            wiki_result = False
         if wiki_result:
-            add_message(wiki_result)
+            messages.append({"kind": "wiki", "text": wiki_result} if with_meta else wiki_result)
             return messages
     answer = f"My gledali jesmo v slovniku, neoficialnyh spisah slov, i daže v Wikipediji, i ne jesmo našli ničto. Poprobuj najdti podobne ili srodne rěči, ili stvori novo slovo sam. V analizovanju pomogut [Glosbe.com](<{bots.glosbe(slova, lang)}>) ili [Nicetranslator](<{bots.nicetranslator(lang)}>)."
     add_message(answer)
     return messages
+
+
+def find_by_id(word_id: str, sheet_name: str = 'words'):
+    """The entry with this id as a one-row table, or None."""
+    sheet = sheets.get(sheet_name)
+    if sheet is None or sheet is False or 'id' not in sheet.columns:
+        return None
+    result = sheet.filter(pl.col('id') == str(word_id))
+    return None if result.is_empty() else result[0:1]
 
 
 if __name__ == "__main__":
@@ -393,38 +474,3 @@ if __name__ == "__main__":
         mashina_search(word, lang)
         print(mashina_search(word, lang))
     x = input()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

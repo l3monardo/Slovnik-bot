@@ -44,6 +44,16 @@ def link_na_slovo(i, sheetname: str):
     return False
 
 import urllib.parse
+
+SITE_URL = "https://interslavic.app"
+
+def link_na_slovnik(word_id, lang: str = 'en'):
+    """The word in the dictionary on interslavic.app (the address its "share" button gives)."""
+    if lang in ('isv', 'id', '') or not lang:
+        lang = 'en'
+    query = urllib.parse.urlencode({"text": f"id{word_id}", "lang": f"isv-{lang}"})
+    return f"{SITE_URL}/?{query}"
+
 def nicetranslator(text):
     url = urllib.parse.quote_plus(text)
     return f"https://nicetranslator.com/translation/ru,be,uk,pl,cs,sk,bg,mk,sr,hr,sl/{url}"
