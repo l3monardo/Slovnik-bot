@@ -1,4 +1,4 @@
-disnake==2.7.0
+disnake==2.12.2
 lemmagen3==3.5.1
 polars==1.17.1
 pyTelegramBotAPI==4.9.0

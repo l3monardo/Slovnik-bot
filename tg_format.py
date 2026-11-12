@@ -64,10 +64,11 @@ def P(inline: str):
     return ("p", inline)
 
 
-def T(rows, plain: str = "pre"):
+def T(rows, plain: str = "pre", grid: bool = False):
     """A table. rows: lists of cells (th / td). plain: how it looks without tables -
-    'kv' lines "<b>first</b> second", or 'pre', a monospace block."""
-    return ("table", rows, plain)
+    'kv' lines "<b>first</b> second", or 'pre', a monospace block. grid: short names and values that may
+    stand side by side (Discord shows them as fields in a row)."""
+    return ("table", rows, plain, grid)
 
 
 def D(summary: str, blocks):
@@ -345,6 +346,7 @@ DEFINITION_LANGS = ["en", "ru", "uk", "be", "pl", "cs", "sk", "sl", "hr", "sr", 
 SENSES_MAX = 5
 SYNONYMS_MAX = 12
 STAT_LANGS_MAX = 12
+SLOVOSBOR_URL = "https://slovosbor.online/"
 
 BUTTON_TEXT = {
     "declension": "Pokazati sklonjenje",
@@ -382,9 +384,11 @@ def stats_blocks(stats, script: str, word_url: str = "") -> list:
         return []
     everything = combined_stats(stats)
     title = f"📊 <b>{esc(tr('Statistika razumlivosti', script))}</b>"
+    # where the votes come from
+    source = P(f"{esc(tr('Izvor', script))}: {link(SLOVOSBOR_URL, 'Slovosbor.online')}")
     if not everything["total"]:
         empty = esc(tr("ješče nikto ne glasoval za to slovo", script))
-        return [P(f"{title}: {empty}")]
+        return [P(f"{title}: {empty}"), source]
     shares = " · ".join(
         f"{esc(tr(label, script))} {_share(everything['counts'].get(vote, 0), everything['total'])}%"
         for vote, label in VOTES if everything["counts"].get(vote)
@@ -401,6 +405,7 @@ def stats_blocks(stats, script: str, word_url: str = "") -> list:
         )
         head = esc(tr("Po rodnomu jezyku", script)) + " — " + esc(tr("Razuměju", script).lower())
         blocks.append(P(f"<i>{head}:</i> {per_lang}"))
+    blocks.append(source)
     return blocks
 
 
@@ -423,7 +428,7 @@ def word_doc(card: dict, script: str, stats=None) -> list:
         rows.append([th(label), td(words_html(words, lang))])
     blocks = [H(headword_html(card))]
     if rows:
-        blocks.append(T(rows, plain="kv"))
+        blocks.append(T(rows, plain="kv", grid=True))
     official = card["sheet"] == "words"
     if official:
         blocks.extend(stats_blocks(stats, script, card["link"]))
@@ -466,7 +471,7 @@ def list_doc(item: dict, script: str) -> list:
             cells.append(td(esc(row["translation"].lstrip("!"))))
         cells.append(td(f"<code>/id {esc(row['id'])}</code>"))
         rows.append(cells)
-    blocks = [P(f"<b>{_md_inline(item['title'])}</b>"), T(rows, plain="kv")]
+    blocks = [P(f"<b>{_md_inline(item['title'])}</b>"), T(rows, plain="kv", grid=True)]
     if item.get("more"):
         blocks.append(P("<i>I tako dalje…</i>"))
     blocks.append(footer())
@@ -489,7 +494,7 @@ def lines_doc(text: str):
         if not m:
             return None
         rows.append([th(esc(m.group(1))), td(esc(m.group(2)))])
-    return [T(rows, plain="kv"), footer()] if rows else None
+    return [T(rows, plain="kv", grid=True), footer()] if rows else None
 
 
 def _md_inline(text: str) -> str:
@@ -512,7 +517,7 @@ def forms_doc(card: dict, forms: dict, script: str) -> list:
             ] for row in table]
             # the list of infinitive, participles …: two columns, read as lines without tables
             two = all(len(row) == 2 and row[0]["colspan"] == 1 for row in rows)
-            blocks.append(T(rows, plain="kv" if two else "pre"))
+            blocks.append(T(rows, plain="kv" if two else "pre", grid=two))
     if card["sheet"] == "words":
         blocks.append(P(link(card["link"], esc(tr("Otvoriti v slovniku", script)) + " ↗")))
     blocks.append(footer())

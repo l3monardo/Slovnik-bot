@@ -2,17 +2,12 @@ import os
 import re
 import time
 import asyncio
-import yaml
 import aiohttp
 from telebot.async_telebot import AsyncTeleBot
 from telebot import asyncio_helper, types
-import lang_detect
-import wiki
-import transliteration as transl
 import isv_tools as isv
-import bots
-import site_api
 import tg_format as fmt
+import answers
 from bot_config import *
 
 
@@ -21,10 +16,7 @@ bot = AsyncTeleBot(settings['token_telegram'])
 # The Bot API server: Telegram's own, or a local one (TELEGRAM_API=http://localhost:8081)
 TELEGRAM_API = os.getenv('TELEGRAM_API', 'https://api.telegram.org').rstrip('/')
 asyncio_helper.API_URL = TELEGRAM_API + '/bot{0}/{1}'
-# The spelling of declension and conjugation tables: "standard" (as interslavic.app shows them) or "etymological"
-ORTHOGRAPHY = os.getenv('ISV_ORTHOGRAPHY', 'standard')
-
-ERROR_TEXT = "Nažalj, moj programist ne primětil někaku pogrěšku. Mečtam o času, kogda roboti počnut pisati svoj kod sami."
+ERROR_TEXT = answers.ERROR_TEXT
 
 
 # ── sending ────────────────────────────────────────────────────
@@ -203,7 +195,7 @@ async def reply_error(message):
 
 # ── the dictionary ─────────────────────────────────────────────
 
-@bot.message_handler(commands=['obnovi', 'обнови'])
+@bot.message_handler(commands=answers.UPDATE_COMMANDS)
 async def handle_update(message):
     try:
         await reply(message, "Ide obnovjenje")
@@ -215,107 +207,19 @@ async def handle_update(message):
         await reply_error(message)
 
 
-# "/ru бегать спр", "/ru жираф decl": the word's table of forms instead of its translations.
-# Letters that look the same in both alphabets count as the same ("сonj" typed with a Cyrillic с).
-LOOKALIKES = str.maketrans("асеорхуіјк", "aceopxyijk")
-FORMS_WORDS = {
-    word.translate(LOOKALIKES): (kind, fmt.script_of(word)) for word, kind in {
-        'conj': 'conjugation', 'spr': 'conjugation', 'спр': 'conjugation',
-        'decl': 'declension', 'skl': 'declension', 'скл': 'declension',
-    }.items()
-}
+async def deliver(message, answers):
+    """Sends what answers.py gave, one answer after another."""
+    for answer in answers:
+        if "doc" in answer:
+            await send_doc(message, answer["doc"], answer["buttons"])
+        else:
+            await reply(message, answer["text"], image=answer["image"])
 
 
-def split_forms_word(slova: str):
-    """("бегать спр") → ("бегать", "conjugation", "cyrl": the keyword's script); (words, None, "latn") without one."""
-    parts = slova.rsplit(maxsplit=1)
-    if len(parts) == 2:
-        found = FORMS_WORDS.get(parts[1].lower().translate(LOOKALIKES))
-        if found:
-            return parts[0], found[0], found[1]
-    return slova, None, 'latn'
-
-
-async def send_forms(message, card: dict, script: str):
-    """The declension or conjugation of a word, as interslavic.app shows it."""
-    if not fmt.forms_kind(card["isv"], card.get("partOfSpeech", "")):
-        return await send_doc(message, fmt.no_forms_doc(card, script))
-    # (the lists of proposed words mark some entries with "#" or "!")
-    word = card["isv"].replace("#", "").replace("!", "").strip()
-    forms = await site_api.word_forms(word, card.get("addition", ""), card["partOfSpeech"], script, ORTHOGRAPHY)
-    if forms is None:
-        text = fmt.tr("Ne mogu dostati tabelu iz slovnika. Poprobuj pozdněje.", script)
-        return await send_doc(message, fmt.error_doc(text))
-    if not forms.get("sections"):
-        return await send_doc(message, fmt.no_forms_doc(card, script))
-    return await send_doc(message, fmt.forms_doc(card, forms, script))
-
-
-async def send_explanation(message, card: dict, lang: str, script: str):
-    """What the word means (the definitions interslavic.app shows, from slovosbor.online)."""
-    data = await site_api.explanation(card["id"], card["isv"])
-    if data is None:
-        text = fmt.tr("Ne mogu dostati objasnjenje iz slovnika. Poprobuj pozdněje.", script)
-        return await send_doc(message, fmt.error_doc(text))
-    return await send_doc(message, fmt.explanation_doc(card, data, lang, script))
-
-
-async def send_word(message, item: dict, script: str):
-    """A word: its card with the statistics and the buttons."""
-    card = item["card"]
-    stats = await site_api.intelligibility(card["id"], card["isv"]) if card["sheet"] == "words" else None
-    await send_doc(message, fmt.word_doc(card, script, stats), fmt.word_buttons(card, script))
-
-
-async def send_item(message, item, script: str):
-    """One answer of the search."""
-    if not isinstance(item, dict):
-        return await reply(message, str(item), is_disable=True)
-    kind = item.get("kind")
-    if kind == "word":
-        return await send_word(message, item, script)
-    if kind == "list":
-        return await send_doc(message, fmt.list_doc(item, script))
-    if kind == "phrase":
-        return await send_doc(message, fmt.phrase_doc(item))
-    if kind == "wiki":
-        doc = fmt.lines_doc(item["text"])
-        if doc:
-            return await send_doc(message, doc)
-    return await reply(message, item.get("text", ""), is_disable=True)
-
-
-@bot.message_handler(commands=['id', 'isv', 'мс', 'ms', 'ru', 'be', 'uk', 'ua', 'pl', 'cs', 'cz', 'sk', 'bg',
-                               'mk', 'sr', 'hr', 'sl', 'ру', 'бе', 'ук', 'бг', 'мк', 'ср', 'en', 'de', 'nl', 'eo'])
+@bot.message_handler(commands=answers.DICTIONARY_COMMANDS)
 async def handle_najdtislovo(message):
     try:
-        # "/ru@mashina_slovnik_bot слово" in a group
-        text = re.sub(r'^(/[^\s@]+)@\S+', r'\1', message.text.strip())
-        if ' ' not in text:
-            await reply(message, "Priměr korektnogo prikaza: `/pl kurva`", is_disable=True)
-            return
-        command = text.split(maxsplit=1)[0]
-        lang, slova = bots.command_splitter(text, 1)
-        slova, forms_kind, word_script = split_forms_word(slova)
-        script = 'cyrl' if 'cyrl' in (fmt.script_of(command), word_script) else 'latn'
-        results = await isv.mashina_search(slova, lang, with_meta=True)
-
-        if forms_kind:
-            cards = [item["card"] for item in results if isinstance(item, dict) and item.get("kind") == "word"]
-            if cards:
-                kinds = [fmt.forms_kind(card["isv"], card.get("partOfSpeech", "")) for card in cards]
-                # the kind that was asked for; any table when the word has only the other kind
-                wanted = [card for card, kind in zip(cards, kinds) if kind == forms_kind] \
-                    or [card for card, kind in zip(cards, kinds) if kind] or cards[:1]
-                for card in wanted:
-                    await send_forms(message, card, script)
-                return
-
-        for item in results:
-            await send_item(message, item, script)
-        if forms_kind and any(isinstance(item, dict) and item.get("kind") == "list" for item in results):
-            await reply(message, "Da by uviděti tabelu jednogo slova, napiši jego ID: `/id 474 skl` ili `/id 474 spr`",
-                        is_disable=True)
+        await deliver(message, await answers.dictionary(message.text))
     except Exception as e:
         print(f"najdtislovo: {type(e).__name__}: {e}")
         await reply_error(message)
@@ -342,145 +246,53 @@ def pressed_before(call) -> bool:
 @bot.callback_query_handler(func=lambda call: True)
 async def handle_button(call):
     try:
-        data = (call.data or '').split(':')
-        if call.message is None or data[0] not in ('f', 'e') or len(data) != 5:
+        parsed = answers.parse_button(call.data)
+        if call.message is None or parsed is None:
             await bot.answer_callback_query(call.id)
             return
-        script = 'cyrl' if data[4] == 'c' else 'latn'
+        script = parsed[4]
         if pressed_before(call):
             await bot.answer_callback_query(call.id, text=fmt.tr("Uže pokazano niže ↓", script))
             return
         await bot.answer_callback_query(call.id)
-
-        # f:<sheet>:<id>:<lang>:<l|c> - the forms;  e:w:<id>:<lang>:<l|c> - the explanation
-        sheet = fmt.SHEET_NAMES.get(data[1])
-        row = isv.find_by_id(data[2], sheet) if sheet else None
-        if row is None:
-            await send_doc(call.message, fmt.error_doc(fmt.tr("Togo slova uže nema v slovniku.", script)))
-            return
-        card = isv.card_data(row, sheet, data[3])
-        if data[0] == 'f':
-            await send_forms(call.message, card, script)
-        else:
-            await send_explanation(call.message, card, data[3], script)
+        await deliver(call.message, await answers.button(parsed))
     except Exception as e:
         print(f"button: {type(e).__name__}: {e}")
 
 
 # ── Wikipedia, the phrasebook, the lessons ─────────────────────
 
-@bot.message_handler(commands=['wiki', 'wiki1', 'wiki2', 'wiki_summary'])
+@bot.message_handler(commands=answers.WIKI_COMMANDS)
 async def handle_wikipedia(message):
     try:
-        text = re.sub(r'^(/[^\s@]+)@\S+', r'\1', message.text.strip())
-        if len(text.split(maxsplit=2)) < 3:
-            await reply(message, "Priměr korektnogo prikaza: `/wiki be Вайна з эму`", is_disable=True)
-            return
-
-        lang, slova = bots.command_splitter(text, 2)
-
-        if lang not in wiki.SUPPORTED_WIKIS:
-            await reply(message, "Ne znajemy jezyk")
-            return
-
-        if "wiki2" in text or "wiki_summary" in text:
-            result = await wiki.wiki_summary(lang, slova)
-        else:
-            result = await wiki.wiki_titles(lang, slova)
-
-        if result:
-            doc = fmt.lines_doc(result)
-            if doc:
-                await send_doc(message, doc)
-            else:
-                await reply(message, result)
-            return
-        noresult = f"V Wikipediji nema teksta o prědmetu `{slova}`, ili on ne imaje prěvody na druge jezyky. Gledati v naših slovnikah: `.{lang} {slova}`"
-        await reply(message, noresult)
+        await deliver(message, await answers.wikipedia(message.text))
     except Exception as e:
         print(f"wiki: {type(e).__name__}: {e}")
         await reply_error(message)
 
-with open('pouky.yaml', encoding="UTF-8") as fh:
-    pouky_data = yaml.load(fh, Loader=yaml.FullLoader)
 
-def pouka_render(pouky_data, name, command):
-    """The text of a lesson - in Latin when the command was typed in Latin - and its picture ('' without one)."""
-    name = str(name)
-    result = pouky_data[name]["text"]
-    if lang_detect.checkalphabet(command) == 'latin':
-        result = transl.transliteration2(result, 'kir_to_lat')
-    return result, pouky_data[name].get("image", "")
-
-async def send_pouka(message, name, command):
-    try:
-        text, image = pouka_render(pouky_data, name, command)
-        await reply(message, text, image=image)
-    except Exception as e:
-        print(f"pouka {name}: {type(e).__name__}: {e}")
-        await reply_error(message)
-
-@bot.message_handler(commands=['fraznik', 'фразник'])
+@bot.message_handler(commands=answers.FRAZNIK_COMMANDS)
 async def handle_fraznik(message):
     try:
-        text = re.sub(r'^(/[^\s@]+)@\S+', r'\1', message.text.strip())
-        if len(text.split(maxsplit=2)) < 3:
-            await reply(message, "Priměr korektnogo prikaza: `/fraznik en today`", is_disable=True)
-            return
-        lang, slova = bots.command_splitter(text, 2)
-
-        result = isv.search_in_phrasebook(slova, lang)
-        if result.is_empty():
-            for text in isv.phrasebook(slova, lang):
-                await reply(message, text, is_disable=True)
-            return
-        for i in range(0, len(result)):
-            await send_doc(message, fmt.phrase_doc(isv.phrasebook_card(i, result, with_meta=True)))
+        await deliver(message, answers.fraznik(message.text))
     except Exception as e:
         print(f"fraznik: {type(e).__name__}: {e}")
         await reply_error(message)
 
 
+def pouka_handler(name):
+    async def handle(message):
+        try:
+            # the help is always in Latin; a lesson in the script of its command
+            await deliver(message, answers.pouka(name, 'latin' if name == 'help' else message.text))
+        except Exception as e:
+            print(f"pouka {name}: {type(e).__name__}: {e}")
+            await reply_error(message)
+    return handle
 
-@bot.message_handler(commands=['start','help', 'pomoč', 'помоч'])
-async def handle_help(message):
-    await send_pouka(message, "help", "latin")
 
-@bot.message_handler(commands=['pouka1', 'поука1', 'линкы', 'линкы1', 'транслитератор', 'граматика', 'linky', 'linky1', 'transliterator', 'gramatika'])
-async def handle_pouka1(message):
-    await send_pouka(message, "pouka1", message.text)
-
-@bot.message_handler(commands=['pouka2', 'поука2', 'линкы2', 'linky2'])
-async def handle_pouka2(message):
-    await send_pouka(message, "pouka2", message.text)
-
-@bot.message_handler(commands=['pouka3', 'поука3', 'пасивно_ученје', 'pasivno_učenje'])
-async def handle_pouka3(message):
-    await send_pouka(message, "pouka3", message.text)
-
-@bot.message_handler(commands=['pouka4', 'поука4', 'како_учити', 'kako_učiti'])
-async def handle_pouka4(message):
-    await send_pouka(message, "pouka4", message.text)
-
-@bot.message_handler(commands=['pouka5', 'поука5', 'словник1', 'словник', 'slovnik1', 'slovnik'])
-async def handle_pouka5(message):
-    await send_pouka(message, "pouka5", message.text)
-
-@bot.message_handler(commands=['pouka6', 'поука6', 'словник2', 'slovnik2'])
-async def handle_pouka6(message):
-    await send_pouka(message, "pouka6", message.text)
-
-@bot.message_handler(commands=['pouka7', 'поука7', 'о_фразнику', 'o_frazniku'])
-async def handle_pouka7(message):
-    await send_pouka(message, "pouka7", message.text)
-
-@bot.message_handler(commands=['pouka8', 'поука8', 'о_боту', 'o_botu'])
-async def handle_pouka8(message):
-    await send_pouka(message, "pouka8", message.text)
-
-@bot.message_handler(commands=['pouka9', 'поука9', 'keyboards', 'клавиатуры', 'klaviatury'])
-async def handle_pouka9(message):
-    await send_pouka(message, "pouka9", message.text)
+for _name, _commands in answers.POUKY_COMMANDS.items():
+    bot.register_message_handler(pouka_handler(_name), commands=_commands)
 
 
 async def want_updates():
