@@ -30,7 +30,11 @@ Commands start with `/` in Telegram and `.` in Discord (`/` works in Discord too
 | `.pravila` | The Discord server rules (Discord only). |
 | `/obnovi words\|suggestions\|fraznik\|wiki list\|cognates` | Reload data; without an argument, reload everything. |
 
-Language codes: `isv`, `en`, `ru`, `be`, `uk`, `pl`, `cs`, `sk`, `bg`, `mk`, `sr`, `hr`, `sl`.
+Language commands: `/isv` (or `/ms`, `/мс`), `/en`, `/de`, `/nl`, `/eo`, `/ru` (`/ру`), `/be` (`/бе`), `/uk` (`/ua`, `/ук`), `/pl`, `/cs` (`/cz`), `/sk`, `/bg` (`/бг`), `/mk` (`/мк`), `/sr` (`/ср`), `/hr`, `/sl`. The word can be written in Latin or Cyrillic. Searching a Slavic language gives the Interslavic word; `/isv` and `/ms` search Interslavic itself.
+
+Most commands also have Cyrillic names: `/помоч`, `/поука1`, `/фразник`, `/обнови`. Lesson commands, in short: `/pouka1`, `/pouka2` links and tools; `/pouka3` passive learning; `/pouka4` how to learn; `/pouka5`, `/pouka6` the dictionary; `/pouka7` the phrasebook; `/pouka8` about the bot; `/pouka9` keyboards.
+
+Buttons under every word of the official dictionary: **Pokazati sklonjenje / spreženje** (declension / conjugation) and **Pokazati objasnjenje** (explanation). In Cyrillic commands the buttons are in Cyrillic.
 
 Forms keywords (Latin or Cyrillic, look-alike letters are accepted): `conj`, `spr`, `спр` for conjugation; `decl`, `skl`, `скл` for declension.
 
