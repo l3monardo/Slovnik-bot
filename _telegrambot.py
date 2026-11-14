@@ -8,6 +8,7 @@ from telebot import asyncio_helper, types
 import isv_tools as isv
 import tg_format as fmt
 import answers
+import slavformer as sf
 from bot_config import *
 
 
@@ -225,6 +226,114 @@ async def handle_najdtislovo(message):
         await reply_error(message)
 
 
+# ── the Slavformer, the word game of interslavic.app (slavformer.py) ──
+
+def sf_player(user, script: str = 'latn') -> sf.Player:
+    name = ' '.join(filter(None, [user.first_name, user.last_name])) or user.username or ''
+    return sf.Player('telegram', str(user.id), name, script)
+
+
+def sf_markup(buttons):
+    if not buttons:
+        return None
+    markup = types.InlineKeyboardMarkup()
+    for row in buttons:
+        markup.row(*[
+            types.InlineKeyboardButton(label, url=data[4:]) if data.startswith('url:')
+            else types.InlineKeyboardButton(label, callback_data=data)
+            for label, data in row
+        ])
+    return markup
+
+
+def topic_of(message):
+    return message.message_thread_id if getattr(message, 'is_topic_message', None) else None
+
+
+async def sf_show(chat_id, screen, reply_to=None, thread=None, under=None):
+    """A screen of the game: in place of the message `under` (its buttons were pressed) when it may, else new."""
+    html = sf.to_html(screen)
+    markup = sf_markup(screen.buttons)
+    if screen.photo:
+        await bot.send_photo(chat_id, screen.photo, caption=html, parse_mode='HTML', reply_markup=markup,
+                             reply_to_message_id=reply_to, allow_sending_without_reply=True, message_thread_id=thread)
+    elif under is not None and screen.edit and under.content_type == 'text':
+        try:
+            await bot.edit_message_text(html, under.chat.id, under.message_id, parse_mode='HTML', reply_markup=markup,
+                                        disable_web_page_preview=True)
+        except Exception as e:
+            if 'not modified' not in str(e):
+                raise
+    else:
+        await bot.send_message(chat_id, html, parse_mode='HTML', reply_markup=markup, disable_web_page_preview=True,
+                               reply_to_message_id=reply_to, allow_sending_without_reply=True,
+                               message_thread_id=thread)
+    for more in screen.extra:
+        await sf_show(chat_id, more, thread=thread)
+
+
+SF_ME = {'username': ''}
+
+
+async def sf_username():
+    if not SF_ME['username']:
+        try:
+            SF_ME['username'] = (await bot.get_me()).username or ''
+        except Exception as e:
+            print(f"getMe: {e}")
+    return SF_ME['username']
+
+
+@bot.message_handler(func=lambda message: (message.text or '').split()[:2] == ['/start', 'igra'])
+@bot.message_handler(commands=sf.all_commands())
+async def handle_slavformer(message):
+    """/igra (/игра, /slavformer), /robot, /magazin, /vyjdi — and the link t.me/<bot>?start=igra."""
+    name = 'igra' if (message.text or '').startswith('/start') else sf.command_name(message.text)
+    player = sf_player(message.from_user, fmt.script_of((message.text or '').split()[0]))
+    try:
+        screen = await sf.command(player, name)
+        if screen.alert and not screen.lines:
+            screen = sf.Screen([[screen.alert]])
+        await sf_show(message.chat.id, screen, reply_to=message.message_id, thread=topic_of(message))
+    except Exception as e:
+        print(f"slavformer {name}: {type(e).__name__}: {e}")
+        await reply_error(message)
+
+
+@bot.callback_query_handler(func=lambda call: (call.data or '').startswith('sf:'))
+async def handle_slavformer_button(call):
+    parsed = sf.parse(call.data)
+    if parsed is None or call.message is None:
+        await bot.answer_callback_query(call.id)
+        return
+    owner, script, what = parsed
+    player = sf_player(call.from_user, script)
+    try:
+        screen = await sf.press(player, owner, what)
+        if screen.alert and not screen.lines and not screen.photo:
+            await bot.answer_callback_query(call.id, text=screen.alert, show_alert=True)
+            return
+        chat = call.message.chat
+        if screen.private and chat.type != 'private':
+            # a link to one's own account: never in a group — in the private chat, if the player opened one
+            try:
+                await sf_show(call.from_user.id, screen)
+                await bot.answer_callback_query(call.id, text=sf.tr("Svęz jest v osobnom čatu s botom.", player))
+            except Exception:
+                username = await sf_username()
+                await bot.answer_callback_query(call.id, show_alert=True, text=sf.tr(
+                    f"Najprvo napišite mi v osobnom čatu: t.me/{username}?start=igra", player))
+            return
+        await bot.answer_callback_query(call.id)
+        await sf_show(chat.id, screen, thread=topic_of(call.message), under=call.message)
+    except Exception as e:
+        print(f"slavformer button: {type(e).__name__}: {e}")
+        try:
+            await bot.answer_callback_query(call.id, text=sf.tr("Ne udalo se — poprobujte znova.", player))
+        except Exception:
+            pass
+
+
 # ── the buttons under a word ───────────────────────────────────
 
 PRESSED = {}  # (chat, message, button) → when: the same button is answered once
@@ -353,6 +462,8 @@ def drop_site_emoji(description: str) -> bool:
 
 async def main():
     await bot.remove_webhook()
+    if not sf.BOT_SECRET:
+        print("SLOVNIK_BOT_SECRET is not set: /igra (the Slavformer) will not reach interslavic.app")
     await want_updates()
     await load_site_emoji()
     await bot.polling(none_stop=True)

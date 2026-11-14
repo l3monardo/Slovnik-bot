@@ -7,3 +7,4 @@ rapidfuzz==3.8.1
 regex==2024.11.6
 python-dotenv
 aiohttp
+resvg-py==0.5.0

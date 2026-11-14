@@ -7,6 +7,7 @@ Commands start with "." (".ru бегать", ".ru бегать spr", ".id 474 sk
 Needs DISCORD_TOKEN and, in the Discord Developer Portal, the "Message Content" intent of the bot.
 """
 import asyncio
+import io
 import os
 import re
 import time
@@ -16,6 +17,7 @@ import disnake
 import answers
 import dc_format as dfmt
 import isv_tools as isv
+import slavformer as sf
 import tg_format as fmt
 from bot_config import *
 
@@ -105,6 +107,67 @@ def lesson(name):
     return handle
 
 
+# ── the Slavformer, the word game of interslavic.app (slavformer.py) ──
+
+def sf_player(user, script: str = 'latn') -> sf.Player:
+    return sf.Player('discord', str(user.id), getattr(user, 'display_name', '') or user.name, script)
+
+
+def sf_rows(buttons):
+    """A screen's buttons as Discord components (at most 5 rows of 5)."""
+    rows = []
+    for row in (buttons or [])[:5]:
+        rows.append(disnake.ui.ActionRow(*[
+            disnake.ui.Button(label=label[:80], url=data[4:], style=disnake.ButtonStyle.link) if data.startswith('url:')
+            else disnake.ui.Button(label=label[:80], custom_id=data[:100], style=disnake.ButtonStyle.secondary)
+            for label, data in row[:5]
+        ]))
+    return rows
+
+
+def sf_message(screen) -> dict:
+    """What disnake's send / edit takes for a screen."""
+    message = {'content': sf.to_markdown(screen)[:2000] or '\u200b', 'components': sf_rows(screen.buttons)}
+    if screen.photo:
+        message['file'] = disnake.File(io.BytesIO(screen.photo), filename='slavformer.png')
+    return message
+
+
+async def slavformer_command(message, text):
+    """.igra (.игра, .slavformer), .robot, .magazin, .vyjdi"""
+    first = text.split()[0]
+    player = sf_player(message.author, fmt.script_of(first))
+    screen = await sf.command(player, first[1:].lower())
+    if screen.alert and not screen.lines:
+        screen = sf.Screen([[screen.alert]])
+    await send(message, None, **sf_message(screen))
+    for more in screen.extra:
+        await message.channel.send(**sf_message(more))
+
+
+async def slavformer_button(inter: disnake.MessageInteraction, parsed):
+    owner, script, what = parsed
+    player = sf_player(inter.author, script)
+    if owner != player.id:
+        await inter.response.send_message(sf.to_plain(sf.not_yours(player)) or sf.not_yours(player).alert,
+                                          ephemeral=True)
+        return
+    await inter.response.defer()
+    screen = await sf.press(player, owner, what)
+    if screen.alert and not screen.lines and not screen.photo:
+        await inter.followup.send(screen.alert, ephemeral=True)
+        return
+    if screen.private:
+        # a link to one's own account: only for the player's eyes
+        await inter.followup.send(ephemeral=True, **sf_message(screen))
+    elif screen.edit and not screen.photo and not inter.message.attachments:
+        await inter.edit_original_message(**sf_message(screen))
+    else:
+        await inter.followup.send(**sf_message(screen))
+    for more in screen.extra:
+        await inter.followup.send(**sf_message(more))
+
+
 ROUTES = {}
 for _name in answers.DICTIONARY_COMMANDS:
     ROUTES[_name] = dictionary
@@ -119,6 +182,8 @@ for _lesson, _names in answers.POUKY_COMMANDS.items():
         ROUTES[_name] = lesson(_lesson)
 for _name in ('pravila', 'правила'):
     ROUTES[_name] = lesson('pravila_discord')
+for _name in sf.all_commands():
+    ROUTES[_name] = slavformer_command
 
 
 def route_of(content: str):
@@ -164,6 +229,13 @@ def pressed_before(message_id: int, data: str) -> bool:
 @bot.event
 async def on_button_click(inter: disnake.MessageInteraction):
     data = inter.data.custom_id
+    game = sf.parse(data)
+    if game is not None:
+        try:
+            await slavformer_button(inter, game)
+        except Exception as e:
+            print(f"slavformer button: {type(e).__name__}: {e}")
+        return
     parsed = answers.parse_button(data)
     if parsed is None:
         return
@@ -200,6 +272,8 @@ async def load_site_emoji():
 @bot.event
 async def on_ready():
     await load_site_emoji()
+    if not sf.BOT_SECRET:
+        print("SLOVNIK_BOT_SECRET is not set: .igra (the Slavformer) will not reach interslavic.app")
     print("Bot jest gotovy")
 
 
