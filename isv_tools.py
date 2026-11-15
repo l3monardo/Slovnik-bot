@@ -273,7 +273,7 @@ def split_and_search(s: str, text: str) -> bool:
 
 
 def filter_contain(s: str, lang: str, sheet):
-    sheet = sheet.filter( pl.col(lang).str.contains(s) == True )
+    sheet = sheet.filter( pl.col(lang).str.contains(s, literal=True) == True )
     return sheet
 
 

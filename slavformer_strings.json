@@ -39,7 +39,7 @@
   "voteNotUnderstand": "Ne razuměju",
   "gameLeaders": "Lideri",
   "gameLeadersAll": "Za vse vrěme",
-  "gameLeadersWeek": "Poslědnih 7 dnij",
+  "gameLeadersWeek": "Poslědnje 7 dni",
   "gameLeadersWords": "slov",
   "gameLeadersYou": "Vy: {__place__}. město, {__n__} slov",
   "gameLeadersEmpty": "Nikto ješče ne odgovoril na nijedno slovo v tom vrěmenu.",

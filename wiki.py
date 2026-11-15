@@ -1,6 +1,16 @@
 import asyncio
-import aiohttp
+import ssl
 import urllib.parse
+
+import aiohttp
+
+try:  # the certificates Python itself may lack on some hosts
+    import certifi
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    SSL_CONTEXT = ssl.create_default_context()
+
+TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 SUPPORTED_WIKIS = [ 'ab', 'ace', 'af', 'als', 'am', 'an', 'ar', 'ary', 'arz', 'as', 'ast', 'avk', 'ay', 'az', 'azb', 'ba', 'ban', 'bar', 'bat-smg', 'bcl', 'be', 'be-tarask', 'be-x-old', 'bg', 'bh', 'bjn', 'bn', 'bo', 'bpy', 'br', 'bs', 'bug', 'ca', 'cdo', 'ce', 'ceb', 'ckb', 'co', 'crh', 'cs', 'csb', 'cu', 'cv', 'cy', 'da', 'de', 'diq', 'dsb', 'el', 'eml', 'en', 'eo', 'es', 'et', 'eu', 'fa', 'fi', 'fiu-vro', 'fo', 'fr', 'frp', 'frr', 'fy', 'ga', 'gan', 'gd', 'gl', 'glk', 'gn', 'gor', 'gu', 'gv', 'ha', 'hak', 'he', 'hi', 'hif', 'hr', 'hsb', 'ht', 'hu', 'hy', 'hyw', 'ia', 'id', 'ie', 'ilo', 'io', 'is', 'it', 'ja', 'jv', 'ka', 'kab', 'kk', 'km', 'kn', 'ko', 'ku', 'kv', 'kw', 'ky', 'la', 'lb', 'li', 'lij', 'lmo', 'lt', 'lv', 'mai', 'map-bms', 'mg', 'mhr', 'mi', 'min', 'mk', 'ml', 'mn', 'mni', 'mr', 'mrj', 'ms', 'my', 'myv', 'mzn', 'nah', 'nap', 'nds', 'nds-nl', 'ne', 'new', 'nl', 'nn', 'no', 'nrm', 'nso', 'nv', 'oc', 'or', 'os', 'pa', 'pam', 'pcd', 'pl', 'pms', 'pnb', 'ps', 'pt', 'qu', 'ro', 'roa-tara', 'ru', 'rue', 'sa', 'sah', 'sat', 'sc', 'scn', 'sco', 'sd', 'se', 'sh', 'shn', 'si', 'simple', 'sk', 'sl', 'sn', 'so', 'sq', 'sr', 'su', 'sv', 'sw', 'szl', 'ta', 'te', 'tg', 'th', 'tk', 'tl', 'tr', 'tt', 'udm', 'ug', 'uk', 'ur', 'uz', 'vec', 'vep', 'vi', 'vls', 'vo', 'wa', 'war', 'wuu', 'xmf', 'yi', 'yo', 'zea', 'zh', 'zh-classical', 'zh-min-nan', 'zh-yue', 'zu']
 SLAVIC_LANGS_FULL = ["ru", "be", "be-x-old", "uk", "rue", "pl", "hsb", "dsb", "cs", "sk", "bg", "mk", "sr", "hr", "sh", "sl", "cu"]
@@ -13,21 +23,28 @@ def take_first_sentence(s):
         if c == '(':
             stack.append(c)
         elif c == ')':
-            stack.pop()
+            if stack:
+                stack.pop()
         elif c in ['.', '!', '?'] and not stack:
             return str(s[:i+1])
     return s.split("\n")[0]
 
 async def fetch_wiki_data(session, lang, title, props):
     headers = {'User-Agent': 'MashinaBot/1.0 (https://github.com/l3monardo/Mashina-bot)'}
-    url = f"https://{lang}.wikipedia.org/w/api.php?action=query&format=json&prop={props}&titles={title}&lllimit=max"
-    async with session.get(url, ssl=False, headers=headers) as response:
+    if lang not in SUPPORTED_WIKIS:
+        return None
+    # the title is the person's own text: quoted, so it never adds parameters of its own
+    url = (f"https://{lang}.wikipedia.org/w/api.php?action=query&format=json&prop={props}"
+           f"&titles={urllib.parse.quote(title)}&lllimit=max")
+    async with session.get(url, ssl=SSL_CONTEXT, headers=headers, timeout=TIMEOUT) as response:
         data = await response.json()
     page = next(iter(data.get("query", {}).get("pages", {}).values()), None)
     return page 
 
 async def fetch_langlinks(session, lang, text):
     page = await fetch_wiki_data(session, lang, text, "langlinks|extracts&exintro&explaintext")
+    if not page:
+        return False
     langlinks = page.get("langlinks", []) or None
     if not langlinks:
         return False
