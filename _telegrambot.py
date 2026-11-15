@@ -2,6 +2,8 @@ import os
 import re
 import time
 import asyncio
+from collections import OrderedDict
+from html import escape
 import aiohttp
 from telebot.async_telebot import AsyncTeleBot
 from telebot import asyncio_helper, types
@@ -250,10 +252,26 @@ def topic_of(message):
     return message.message_thread_id if getattr(message, 'is_topic_message', None) else None
 
 
-async def sf_show(chat_id, screen, reply_to=None, thread=None, under=None):
+# "Napišite vaš komentar": the prompt's message → whose comment on which word (an answer to it is the comment)
+SF_PROMPTS = OrderedDict()
+SF_PROMPTS_MAX = 2000
+
+
+async def sf_show(chat_id, screen, reply_to=None, thread=None, under=None, user=None):
     """A screen of the game: in place of the message `under` (its buttons were pressed) when it may, else new."""
     html = sf.to_html(screen)
     markup = sf_markup(screen.buttons)
+    if screen.prompt and user is not None:
+        # a comment: the reply to this message (in a group: only the one it names is asked)
+        mention = f'<a href="tg://user?id={user.id}">{escape(user.first_name or user.username or "")}</a>, '
+        sent = await bot.send_message(
+            chat_id, html if chat_id == user.id else mention + html, parse_mode='HTML',
+            reply_markup=types.ForceReply(selective=True, input_field_placeholder='Vaš komentar…'),
+            reply_to_message_id=reply_to, allow_sending_without_reply=True, message_thread_id=thread)
+        SF_PROMPTS[(chat_id, sent.message_id)] = (str(user.id), screen.prompt['word'])
+        while len(SF_PROMPTS) > SF_PROMPTS_MAX:
+            SF_PROMPTS.popitem(last=False)
+        return
     if screen.photo:
         await bot.send_photo(chat_id, screen.photo, caption=html, parse_mode='HTML', reply_markup=markup,
                              reply_to_message_id=reply_to, allow_sending_without_reply=True, message_thread_id=thread)
@@ -287,16 +305,40 @@ async def sf_username():
 @bot.message_handler(func=lambda message: (message.text or '').split()[:2] == ['/start', 'igra'])
 @bot.message_handler(commands=sf.all_commands())
 async def handle_slavformer(message):
-    """/igra (/игра, /slavformer), /robot, /magazin, /vyjdi — and the link t.me/<bot>?start=igra."""
+    """/igra (/игра, /slavformer), /robot, /magazin, /lideri, /vyjdi — and the link t.me/<bot>?start=igra."""
     name = 'igra' if (message.text or '').startswith('/start') else sf.command_name(message.text)
     player = sf_player(message.from_user, fmt.script_of((message.text or '').split()[0]))
     try:
         screen = await sf.command(player, name)
         if screen.alert and not screen.lines:
             screen = sf.Screen([[screen.alert]])
-        await sf_show(message.chat.id, screen, reply_to=message.message_id, thread=topic_of(message))
+        await sf_show(message.chat.id, screen, reply_to=message.message_id, thread=topic_of(message),
+                      user=message.from_user)
     except Exception as e:
         print(f"slavformer {name}: {type(e).__name__}: {e}")
+        await reply_error(message)
+
+
+def sf_prompted(message) -> bool:
+    replied = message.reply_to_message
+    return replied is not None and (message.chat.id, replied.message_id) in SF_PROMPTS
+
+
+@bot.message_handler(func=sf_prompted, content_types=['text'])
+async def handle_slavformer_comment(message):
+    """The answer to "Napišite vaš komentar": the comment, on the word's page on interslavic.app."""
+    key = (message.chat.id, message.reply_to_message.message_id)
+    owner, word = SF_PROMPTS[key]
+    if str(message.from_user.id) != owner:
+        return
+    SF_PROMPTS.pop(key, None)
+    script = 'cyrl' if re.search('[а-яёђјљњћџѣѧ]', message.reply_to_message.text or '', re.I) else 'latn'
+    player = sf_player(message.from_user, script)
+    try:
+        screen = await sf.comment(player, word, message.text)
+        await sf_show(message.chat.id, screen, reply_to=message.message_id, thread=topic_of(message))
+    except Exception as e:
+        print(f"slavformer comment: {type(e).__name__}: {e}")
         await reply_error(message)
 
 
@@ -325,7 +367,7 @@ async def handle_slavformer_button(call):
                     f"Najprvo napišite mi v osobnom čatu: t.me/{username}?start=igra", player))
             return
         await bot.answer_callback_query(call.id)
-        await sf_show(chat.id, screen, thread=topic_of(call.message), under=call.message)
+        await sf_show(chat.id, screen, thread=topic_of(call.message), under=call.message, user=call.from_user)
     except Exception as e:
         print(f"slavformer button: {type(e).__name__}: {e}")
         try:

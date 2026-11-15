@@ -7,7 +7,7 @@ old car into a robot that the grivnas dress up. The game lives on the site: the 
 the site's API (api/_lib/slavbot.ts in interslavic-hub), so the score, the grivnas and the robot are the same here,
 in the other bot and on the site.
 
-The player signs in first. "Vojti" gives the bot the account the site gives this Telegram / Discord (made now when
+The player signs in first. "Vojdti" gives the bot the account the site gives this Telegram / Discord (made now when
 there is none: one then signs in on the site with the same Telegram / Discord); "Uže imam račun" opens the site,
 where one gives the bot an account made otherwise (Google…).
 
@@ -45,6 +45,9 @@ COMMANDS = ["igra", "игра", "slavformer", "славформер", "game"]
 SHOP_COMMANDS = ["magazin", "магазин"]
 FIGURE_COMMANDS = ["robot", "робот"]
 LOGOUT_COMMANDS = ["vyjdi", "выјди", "logout"]
+LEADER_COMMANDS = ["lideri", "лидери", "leaders"]
+LEADERS_SHOWN = 10
+COMMENT_MAX = 2000
 CANDIDATES = 50
 SHOP_PAGE = 8
 SHOWN_MAX = 400
@@ -68,6 +71,9 @@ NATIVE_LANGS = ["ru", "uk", "be", "rue", "pl", "csb", "szl", "hsb", "dsb", "cs",
 # the dictionary's columns: the meaning is shown in the mother tongue when it is one of them, else in English
 MEANING_LANGS = ["ru", "uk", "be", "pl", "cs", "sk", "sl", "hr", "sr", "mk", "bg"]
 STAGE_KEYS = {"car": "gameStageCar", "morph": "gameStageMorph", "robot": "gameStageRobot"}
+STAGE_MARKS = {"car": "🚗", "morph": "🦿", "robot": "🤖"}
+PERIODS = {"all": "gameLeadersAll", "week": "gameLeadersWeek"}
+MEDALS = ["🥇", "🥈", "🥉"]
 PLATFORM_NAMES = {"telegram": "Telegram", "discord": "Discord"}
 WITH_PLATFORM = {"telegram": "s Telegramom", "discord": "s Discordom"}
 
@@ -96,6 +102,7 @@ class Screen:
     edit: bool = True                               # may replace the message the button was under
     private: bool = False                           # only for the player's eyes (a link to the site)
     extra: list = field(default_factory=list)       # more screens to send after this one (the figure)
+    prompt: dict = None                             # asks for a text: {"word": id} — a comment on that word
 
 
 def to_html(screen: Screen) -> str:
@@ -297,13 +304,19 @@ def head(player: Player, game: dict) -> list:
     return lines
 
 
-def nav_row(player: Player, word_id: str = None) -> list:
-    row = []
+def nav_rows(player: Player, word_id: str = None, previous: tuple = None) -> list:
+    """Under a word: skip it, comment on it, change the answer before; then the robot, the shop, the leaders."""
+    rows = []
     if word_id:
-        row.append(("⏭ " + text("gameSkip", player), data(player, "s", word_id)))
-    row.append(("🤖 " + tr("Moj robot", player), data(player, "f")))
-    row.append(("🛒 " + text("gameShop", player), data(player, "m", 0)))
-    return row
+        rows.append([("⏭ " + text("gameSkip", player), data(player, "s", word_id)),
+                     ("💬 " + text("gameComment", player), data(player, "k", word_id))])
+    if previous and word_id:
+        before, index = previous
+        rows.append([("✏️ " + text("gamePrevious", player), data(player, "c", before, index, word_id))])
+    rows.append([("🤖 " + tr("Moj robot", player), data(player, "f")),
+                 ("🛒 " + text("gameShop", player), data(player, "m", 0)),
+                 ("🏆 " + text("gameLeaders", player), data(player, "l", "all"))])
+    return rows
 
 
 def sign_in_screen(player: Player, note: str = "") -> Screen:
@@ -319,7 +332,7 @@ def sign_in_screen(player: Player, note: str = "") -> Screen:
             f"bude vaša igra tamo: s tym samym računom vhodite na sajt črěz {platform}.", player)],
     ]
     return Screen(lines, [
-        [("✅ " + tr(f"Vojti {WITH_PLATFORM[player.platform]}", player), data(player, "in"))],
+        [("✅ " + tr(f"Vojdti {WITH_PLATFORM[player.platform]}", player), data(player, "in"))],
         [("🔗 " + tr("Uže imam račun na interslavic.app", player), data(player, "ln"))],
     ])
 
@@ -331,8 +344,10 @@ def native_screen(player: Player, note_lines: list = None) -> Screen:
     return Screen(lines, [names[i:i + 4] for i in range(0, len(names), 4)])
 
 
-def word_screen(player: Player, game: dict, native, free: list, header: list = None) -> Screen:
-    """The next word (the first free one that the dictionary still has), under what happened just now."""
+def word_screen(player: Player, game: dict, native, free: list, header: list = None,
+                previous: tuple = None) -> Screen:
+    """The next word (the first free one that the dictionary still has), under what happened just now.
+    `previous`: (word, answer) — the answer before, which a button changes."""
     lines = list(header or [])
     for word_id in free:
         found = word_of(word_id)
@@ -351,10 +366,10 @@ def word_screen(player: Player, game: dict, native, free: list, header: list = N
         lines.append([text("voteQuestion", player)])
         votes = [(f"{VOTE_MARKS[vote]} {vote_label(vote, player)}", data(player, "v", word_id, i))
                  for i, vote in enumerate(VOTES)]
-        return Screen(lines, [[votes[0]], [votes[1]], [votes[2]], votes[3:], nav_row(player, word_id)])
+        return Screen(lines, [[votes[0]], [votes[1]], [votes[2]], votes[3:], *nav_rows(player, word_id, previous)])
     lines += head(player, game)
     lines.append([text("gameAllDone", player)])
-    return Screen(lines, [nav_row(player)])
+    return Screen(lines, nav_rows(player))
 
 
 async def play(player: Player, header: list = None) -> Screen:
@@ -400,26 +415,88 @@ async def vote(player: Player, word_id: str, index: int) -> Screen:
         return native_screen(player)
     if status != 200:
         return failed_screen(player, status, answer)
-    header = [[f"{VOTE_MARKS[chosen]} ", B(in_script(first, player)), f": {vote_label(chosen, player)}"
-               + (f" · +{answer['gained']} 💰" if answer.get("gained") else "")
-               + (f" ({text('gameBonus', player)}!)" if answer.get("bonus") else "")]]
-    counts, total = _combined(answer.get("stats") or {})
-    if total > 1:
-        top = max(VOTES, key=lambda v: counts.get(v, 0))
-        header.append([I(f"{text('gameOthers', player)}: {round(counts.get(top, 0) / total * 100)}% "
-                         f"{vote_label(top, player)} ({total})")])
-    else:
-        header.append([I(text("gameFirst", player))])
+    header = _answer_lines(player, first, chosen, answer)
     header.append(["─" * 12])
     if answer.get("free"):
         # the next word: the first of the free ones the site named, else a new round of candidates
-        screen = word_screen(player, answer["game"], answer.get("native"), answer["free"], header)
+        screen = word_screen(player, answer["game"], answer.get("native"), answer["free"], header,
+                             previous=(word_id, index))
     else:
         screen = await play(player, header)
     if answer.get("became"):
         cheer = text("gameBecameRobot" if answer["became"] == "robot" else "gameBecameMorph", player)
         screen.extra.append(await figure(player, note=f"🎉 {cheer}", game=answer["game"]))
     return screen
+
+
+def _answer_lines(player: Player, first: str, chosen: str, answer: dict, mark: str = None) -> list:
+    """✏️ grad: Razuměju · +10 💰 — and how the others answered."""
+    lines = [[f"{mark or VOTE_MARKS[chosen]} ", B(in_script(first, player)), f": {vote_label(chosen, player)}"
+              + (f" · +{answer['gained']} 💰" if answer.get("gained") else "")
+              + (f" ({text('gameBonus', player)}!)" if answer.get("bonus") else "")]]
+    counts, total = _combined(answer.get("stats") or {})
+    if total > 1:
+        top = max(VOTES, key=lambda v: counts.get(v, 0))
+        lines.append([I(f"{text('gameOthers', player)}: {round(counts.get(top, 0) / total * 100)}% "
+                        f"{vote_label(top, player)} ({total})")])
+    else:
+        lines.append([I(text("gameFirst", player))])
+    return lines
+
+
+async def change(player: Player, word_id: str, index: int, back: str) -> Screen:
+    """The answer before, to change: the word, its meaning, the five answers (the one given marked)."""
+    found = word_of(word_id)
+    if not found or not 0 <= index < len(VOTES):
+        return Screen(alert=tr("Togo slova uže nema v slovniku.", player))
+    entry, _, pos, row = found
+    status, answer = await ask(player, "me")
+    if status != 200:
+        return failed_screen(player, status, answer)
+    if not answer.get("account"):
+        return sign_in_screen(player)
+    native = answer.get("native")
+    meaning = isv.cell(row, meaning_lang(native)).replace("!", "").replace("#", "").strip() \
+        or isv.cell(row, "en").replace("!", "").strip()
+    language = LANG_NAMES.get(meaning_lang(native), "")
+    lines = [["✏️ ", B(text("gameChangeAnswer", player))],
+             [""],
+             [B(in_script(entry, player))] + (["  ", I(pos)] if pos else []),
+             [f"{text('gameMeaning', player)} ({tr(language, player)}): {meaning or '—'}"],
+             [""],
+             [f"{VOTE_MARKS[VOTES[index]]} {vote_label(VOTES[index], player)}"]]
+    votes = [(("✓ " if i == index else "") + f"{VOTE_MARKS[v]} {vote_label(v, player)}",
+              data(player, "v2", word_id, i, back)) for i, v in enumerate(VOTES)]
+    return Screen(lines, [[votes[0]], [votes[1]], [votes[2]], votes[3:],
+                          [("↩ " + text("cancel", player), data(player, "y", back)),
+                           ("💬 " + text("gameComment", player), data(player, "k", word_id))]])
+
+
+async def changed(player: Player, word_id: str, index: int, back: str) -> Screen:
+    """A changed answer; then the word that was waiting."""
+    found = word_of(word_id)
+    if not found or not 0 <= index < len(VOTES):
+        return Screen(alert=tr("Togo slova uže nema v slovniku.", player))
+    _, first, _, _ = found
+    chosen = VOTES[index]
+    status, answer = await ask(player, "vote", id=word_id, word=first, vote=chosen, candidates=[back])
+    if status == 401 and answer.get("code") == "SIGN_IN":
+        return sign_in_screen(player)
+    if status != 200:
+        return failed_screen(player, status, answer)
+    header = _answer_lines(player, first, chosen, answer, mark="✏️") + [["─" * 12]]
+    if answer.get("free"):
+        return word_screen(player, answer["game"], answer.get("native"), answer["free"], header,
+                           previous=(word_id, index))
+    return await play(player, header)
+
+
+async def back_to(player: Player, word_id: str) -> Screen:
+    """The word that was on the screen before "change the answer before"."""
+    status, answer = await ask(player, "next", candidates=[word_id])
+    if status != 200 or not answer.get("free") or not answer.get("native"):
+        return await play(player)
+    return word_screen(player, answer["game"], answer["native"], answer["free"])
 
 
 async def skip(player: Player, word_id: str) -> Screen:
@@ -470,7 +547,87 @@ async def link(player: Player) -> Screen:
 
 async def logout(player: Player) -> Screen:
     await ask(player, "logout")
-    return Screen([[tr("Bot uže ne igraje za vaš račun. Račun na interslavic.app i vaša igra tamo ostajut.", player)]])
+    return Screen([[tr("Bot uže ne igraje za vaš račun. Račun na interslavic.app i vaša igra tamo ostavajut.",
+                       player)]])
+
+
+# ── the leaders ────────────────────────────────────────────────
+
+async def leaders(player: Player, period: str = "all") -> Screen:
+    """Who answered the most words — ever or in the last seven days (/lideri; also on the site, /leaders)."""
+    period = period if period in PERIODS else "all"
+    status, answer = await ask(player, "leaders", period=period)
+    if status != 200:
+        return failed_screen(player, status, answer)
+    lines = [["🏆 ", B(text("gameLeaders", player)), f" · {text(PERIODS[period], player)}"], [""]]
+    shown = answer.get("leaders", [])[:LEADERS_SHOWN]
+    if not shown:
+        lines.append([text("gameLeadersEmpty", player)])
+    for leader in shown:
+        place = MEDALS[leader["place"] - 1] if leader["place"] <= 3 else f"{leader['place']}."
+        mine = answer.get("me") and leader["id"] == answer["me"].get("id")
+        lines.append([f"{place} {STAGE_MARKS.get(leader['stage'], '')} ",
+                      B(leader["name"]) if mine else leader["name"],
+                      f" — {leader['votes']} {text('gameLeadersWords', player)}"])
+    me = answer.get("me")
+    if me and me["place"] > len(shown):
+        lines += [[""], ["👤 ", text("gameLeadersYou", player, place=me["place"], n=me["votes"])]]
+    if answer.get("players"):
+        lines += [[""], [I(text("gameLeadersPlayers", player, n=answer["players"]))]]
+    tabs = [(("• " if value == period else "") + text(key, player), data(player, "l", value))
+            for value, key in PERIODS.items()]
+    return Screen(lines, [tabs, [("▶️ " + text("gamePlay", player), data(player, "p")),
+                                 ("🌐 interslavic.app", "url:" + SITE_URL + "/leaders"
+                                  + ("?period=week" if period == "week" else ""))]])
+
+
+# ── comments on a word ─────────────────────────────────────────
+
+def comment_prompt(player: Player, word_id: str) -> Screen:
+    """"Napišite vaš komentar": Telegram asks for a reply to this message, Discord opens a form."""
+    found = word_of(word_id)
+    if not found:
+        return Screen(alert=tr("Togo slova uže nema v slovniku.", player))
+    _, first, _, _ = found
+    return Screen([["💬 ", B(tr("Napišite vaš komentar", player)), " — ", B(in_script(first, player))],
+                   [I(tr("Komentar bude viden pod slovom na interslavic.app.", player))]],
+                  prompt={"word": word_id}, edit=False)
+
+
+def comment_title(player: Player, word_id: str) -> str:
+    found = word_of(word_id)
+    return in_script(found[1], player) if found else ""
+
+
+async def comment(player: Player, word_id: str, body: str) -> Screen:
+    """Posts the comment as the player, on the word's page on the site."""
+    found = word_of(word_id)
+    if not found:
+        return Screen([[tr("Togo slova uže nema v slovniku.", player)]])
+    _, first, _, _ = found
+    body = (body or "").strip()
+    if not body:
+        return Screen([[tr("Komentar jest prazny.", player)]])
+    if len(body) > COMMENT_MAX:
+        return Screen([[tr(f"Komentar jest predolgy: do {COMMENT_MAX} znakov.", player)]])
+    status, answer = await ask(player, "comment", id=word_id, word=first, body=body)
+    if status == 401 and answer.get("code") == "SIGN_IN":
+        return sign_in_screen(player)
+    if status == 403 and answer.get("code") == "BLOCKED":
+        return failed_screen(player, status, answer)
+    if status == 409:
+        return Screen([[tr("Taky komentar uže jest.", player)]])
+    if status == 429:
+        return Screen([[tr("Mnogo komentarov za kratko vrěme — počekajte nekoliko minut.", player)]])
+    if status != 201:
+        return failed_screen(player, status, answer)
+    _, me = await ask(player, "me")
+    lang = meaning_lang(me.get("native"))
+    url = f"{SITE_URL}/?text=id{word_id}&lang=isv-{lang}&comment={answer['comment']['id']}"
+    return Screen([["✅ ", tr("Vaš komentar jest na interslavic.app pod slovom ", player), B(in_script(first, player)),
+                    "."]],
+                  [[("🌐 " + tr("Pokazati na sajtu", player), "url:" + url),
+                    ("▶️ " + text("gamePlay", player), data(player, "p"))]], edit=False)
 
 
 # ── the figure ─────────────────────────────────────────────────
@@ -646,6 +803,9 @@ def _lock(player: Player) -> asyncio.Lock:
 
 async def press(player: Player, owner: str, what: list) -> Screen:
     """What a button under the game does. `player` pressed it; `owner` is the one whose game the message shows."""
+    # the leaders are anyone's to look at
+    if what and what[0] == "l":
+        return await leaders(player, what[1] if len(what) > 1 else "all")
     if owner != player.id:
         return not_yours(player)
     async with _lock(player):
@@ -661,6 +821,14 @@ async def _press(player: Player, what: list) -> Screen:
             return await vote(player, args[0], int(args[1]))
         if kind == "s":
             return await skip(player, args[0])
+        if kind == "c":
+            return await change(player, args[0], int(args[1]), args[2])
+        if kind == "v2":
+            return await changed(player, args[0], int(args[1]), args[2])
+        if kind == "y":
+            return await back_to(player, args[0])
+        if kind == "k":
+            return comment_prompt(player, args[0])
         if kind == "n":
             return await set_native(player, args[0])
         if kind == "in":
@@ -681,7 +849,7 @@ async def _press(player: Player, what: list) -> Screen:
 
 
 async def command(player: Player, name: str) -> Screen:
-    """/igra, /robot, /magazin, /vyjdi."""
+    """/igra, /robot, /magazin, /lideri, /vyjdi."""
     async with _lock(player):
         if name in SHOP_COMMANDS:
             return await shop(player, 0)
@@ -689,6 +857,8 @@ async def command(player: Player, name: str) -> Screen:
             return await figure(player)
         if name in LOGOUT_COMMANDS:
             return await logout(player)
+        if name in LEADER_COMMANDS:
+            return await leaders(player)
         return await play(player)
 
 
@@ -699,4 +869,4 @@ def command_name(message_text: str) -> str:
 
 
 def all_commands() -> list:
-    return COMMANDS + SHOP_COMMANDS + FIGURE_COMMANDS + LOGOUT_COMMANDS
+    return COMMANDS + SHOP_COMMANDS + FIGURE_COMMANDS + LOGOUT_COMMANDS + LEADER_COMMANDS

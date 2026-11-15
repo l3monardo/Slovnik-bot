@@ -30,7 +30,7 @@ Commands start with `/` in Telegram and `.` in Discord (`/` works in Discord too
 | `/help` (`/start` in Telegram) and the lesson commands (`/pouka1` … `/pouka9`) | Help texts (see `pouky.yaml`). |
 | `.pravila` | The Discord server rules (Discord only). |
 | `/igra` (`/игра`, `/slavformer`) | The Slavformer: the next word to answer. |
-| `/robot`, `/magazin`, `/vyjdi` | Your Slavformer as a picture, its shop, and signing the bot out of your account. |
+| `/robot`, `/magazin`, `/lideri`, `/vyjdi` | Your Slavformer as a picture, its shop, the leaders, and signing the bot out of your account. |
 | `/obnovi words\|suggestions\|fraznik\|wiki list\|cognates` | Reload data; without an argument, reload everything. |
 
 Language commands: `/isv` (or `/ms`, `/мс`), `/en`, `/de`, `/nl`, `/eo`, `/ru` (`/ру`), `/be` (`/бе`), `/uk` (`/ua`, `/ук`), `/pl`, `/cs` (`/cz`), `/sk`, `/bg` (`/бг`), `/mk` (`/мк`), `/sr` (`/ср`), `/hr`, `/sl`. The word can be written in Latin or Cyrillic. Searching a Slavic language gives the Interslavic word; `/isv` and `/ms` search Interslavic itself.
@@ -102,12 +102,16 @@ Create the bot with [@BotFather](https://t.me/BotFather). The 🏴 before the li
 
 **Signing in.** The first `/igra` asks you to sign in:
 
-- **Vojti s Telegramom / s Discordom** gives the bot the account interslavic.app gives this Telegram or Discord: the one you connected it to on the site, or the one made by signing in with it. If there is none, it is made now — sign in on the site with the same Telegram or Discord and you see the same game.
+- **Vojdti s Telegramom / s Discordom** gives the bot the account interslavic.app gives this Telegram or Discord: the one you connected it to on the site, or the one made by signing in with it. If there is none, it is made now — sign in on the site with the same Telegram or Discord and you see the same game.
 - **Uže imam račun na interslavic.app** is for an account made otherwise (Google…). The bot sends a link (only to you: in Telegram in your private chat with the bot, in Discord as a message only you see). Open it, sign in on the site and press *Svęzati*. The link works once, for 15 minutes.
 
 The bot then asks your mother tongue once (the votes are counted by it). `/vyjdi` signs the bot out; the account and the game stay on the site.
 
-**In groups and servers** each game belongs to its player: someone else's buttons only show a note.
+**Under each word**: *Propustiti* (skip it), *💬 Komentovati* (write a comment on the word — Telegram asks for a reply to its message "Napišite vaš komentar", Discord opens a form; the comment appears under the word on interslavic.app), *✏️ Izměniti prědhodny odgovor* (go back to the word before and answer it otherwise — no grivnas are added or taken), and the robot, the shop and the leaders.
+
+**Leaders.** `/lideri` (or the 🏆 button) shows who has answered the most words — ever, or in the last seven days — and your own place; the same list is on the site at interslavic.app/leaders.
+
+**In groups and servers** each game belongs to its player: someone else's buttons only show a note (anyone may look at the leaders).
 
 **Setup.** Both bots need the same secret as the site's API, in `.env`:
 
@@ -123,6 +127,7 @@ For the Telegram menu, add the commands in @BotFather (`/setcommands`):
 igra - Slavformer: the word game
 robot - My Slavformer
 magazin - The Slavformer's shop
+lideri - The Slavformer's leaders
 vyjdi - Sign the bot out of my interslavic.app account
 ```
 

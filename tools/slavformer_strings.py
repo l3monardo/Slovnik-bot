@@ -12,6 +12,8 @@ KEYS = [
     'gamePerHour', 'gameCollected', 'gameStageCar', 'gameStageMorph', 'gameStageRobot', 'gameGoalStage',
     'gameGoalBonus', 'gamePlay', 'voteNeedsProfile', 'blockedForever',
     'voteUnderstand', 'voteContext', 'voteNonNative', 'voteFalseFriend', 'voteNotUnderstand',
+    'gameLeaders', 'gameLeadersAll', 'gameLeadersWeek', 'gameLeadersWords', 'gameLeadersYou', 'gameLeadersEmpty',
+    'gameLeadersPlayers', 'gameChangeAnswer', 'gamePrevious', 'gameComment', 'cancel',
 ]
 ITEMS = ['paint-white', 'paint-beige', 'paint-yellow', 'paint-green', 'paint-blue', 'paint-violet', 'paint-cherry',
          'paint-black', 'tank', 'tracksuit', 'telnyashka', 'shirt', 'leather', 'dublenka', 'goldsuit', 'cap', 'ushanka',

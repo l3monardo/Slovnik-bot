@@ -114,9 +114,17 @@ def sf_player(user, script: str = 'latn') -> sf.Player:
 
 
 def sf_rows(buttons):
-    """A screen's buttons as Discord components (at most 5 rows of 5)."""
+    """A screen's buttons as Discord components: at most 5 rows of 5 — more rows are put together, the shortest
+    neighbours first (the answers, one a row in Telegram, share rows here)."""
+    packed = [list(row) for row in (buttons or [])]
+    while len(packed) > 5:
+        sizes = [(len(packed[i]) + len(packed[i + 1]), i) for i in range(len(packed) - 1)]
+        size, i = min(sizes)
+        if size > 5:
+            break
+        packed[i:i + 2] = [packed[i] + packed[i + 1]]
     rows = []
-    for row in (buttons or [])[:5]:
+    for row in packed[:5]:
         rows.append(disnake.ui.ActionRow(*[
             disnake.ui.Button(label=label[:80], url=data[4:], style=disnake.ButtonStyle.link) if data.startswith('url:')
             else disnake.ui.Button(label=label[:80], custom_id=data[:100], style=disnake.ButtonStyle.secondary)
@@ -134,7 +142,7 @@ def sf_message(screen) -> dict:
 
 
 async def slavformer_command(message, text):
-    """.igra (.игра, .slavformer), .robot, .magazin, .vyjdi"""
+    """.igra (.игра, .slavformer), .robot, .magazin, .lideri, .vyjdi"""
     first = text.split()[0]
     player = sf_player(message.author, fmt.script_of(first))
     screen = await sf.command(player, first[1:].lower())
@@ -148,9 +156,20 @@ async def slavformer_command(message, text):
 async def slavformer_button(inter: disnake.MessageInteraction, parsed):
     owner, script, what = parsed
     player = sf_player(inter.author, script)
-    if owner != player.id:
-        await inter.response.send_message(sf.to_plain(sf.not_yours(player)) or sf.not_yours(player).alert,
-                                          ephemeral=True)
+    # (the leaders are anyone's to look at)
+    if owner != player.id and what[0] != 'l':
+        await inter.response.send_message(sf.not_yours(player).alert, ephemeral=True)
+        return
+    if what[0] == 'k' and len(what) > 1:
+        # "Napišite vaš komentar": a form — the first answer to the press, before anything else
+        word = sf.comment_title(player, what[1])
+        await inter.response.send_modal(
+            title=sf.tr('Napišite vaš komentar', player)[:45],
+            custom_id=sf.data(player, 'k', what[1])[:100],
+            components=[disnake.ui.TextInput(
+                label=(word or sf.tr('Komentar', player))[:45], custom_id='body',
+                style=disnake.TextInputStyle.paragraph, max_length=sf.COMMENT_MAX,
+                placeholder=sf.tr('Komentar bude viden pod slovom na interslavic.app.', player)[:100])])
         return
     await inter.response.defer()
     screen = await sf.press(player, owner, what)
@@ -166,6 +185,25 @@ async def slavformer_button(inter: disnake.MessageInteraction, parsed):
         await inter.followup.send(**sf_message(screen))
     for more in screen.extra:
         await inter.followup.send(**sf_message(more))
+
+
+@bot.event
+async def on_modal_submit(inter: disnake.ModalInteraction):
+    """The form "Napišite vaš komentar": the comment, on the word's page on interslavic.app."""
+    parsed = sf.parse(inter.custom_id)
+    if parsed is None or parsed[2][:1] != ['k'] or len(parsed[2]) < 2:
+        return
+    owner, script, what = parsed
+    player = sf_player(inter.author, script)
+    if owner != player.id:
+        await inter.response.send_message(sf.not_yours(player).alert, ephemeral=True)
+        return
+    await inter.response.defer()
+    try:
+        screen = await sf.comment(player, what[1], inter.text_values.get('body', ''))
+        await inter.followup.send(**sf_message(screen))
+    except Exception as e:
+        print(f"slavformer comment: {type(e).__name__}: {e}")
 
 
 ROUTES = {}
