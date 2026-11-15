@@ -117,6 +117,9 @@ async def dictionary(text: str) -> list:
         return [Text("Priměr korektnogo prikaza: `/pl kurva`")]
     command = text.split(maxsplit=1)[0]
     lang, slova = bots.command_splitter(text, 1)
+    if lang != 'id' and lang not in isv.langs:
+        # /de, /nl, /eo: the bot's copy of the dictionary has no such column (yet)
+        return [Text("Togo jezyka ješče nema v botu. Spisok jezykov i prikazov: `/help`")]
     slova, forms_kind, word_script = split_forms_word(slova)
     script = 'cyrl' if 'cyrl' in (fmt.script_of(command), word_script) else 'latn'
     results = await isv.mashina_search(slova, lang, with_meta=True)

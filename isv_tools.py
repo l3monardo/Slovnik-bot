@@ -97,6 +97,8 @@ sheets['words']['isv_normalized']
 def update_sheets(text: str):
     global sheets
     text = transl.transliteration(text, 'kir_to_lat')
+    # "/obnovi slovnik" (as the help says): the official dictionary, the sheet "words"
+    text = text.replace('slovnik', 'words')
     sheets_to_update = [s for s in sheet_links.keys() if (s.lower() in text)]
     if not sheets_to_update:
         sheets = load_all_sheets(update=True)
