@@ -72,6 +72,10 @@ NATIVE_LANGS = ["ru", "uk", "be", "rue", "pl", "csb", "szl", "hsb", "dsb", "cs",
 MEANING_LANGS = ["ru", "uk", "be", "pl", "cs", "sk", "sl", "hr", "sr", "mk", "bg"]
 STAGE_KEYS = {"car": "gameStageCar", "morph": "gameStageMorph", "robot": "gameStageRobot"}
 STAGE_MARKS = {"car": "🚗", "morph": "🦿", "robot": "🤖"}
+# the ranks (api/_lib/game.ts: GAME_RANKS): the texts' key of each one's name
+RANK_KEYS = {"megaslav": "gameRankMegaslav", "optimusSlav": "gameRankOptimusSlav", "slavatron": "gameRankSlavatron",
+             "slavbot": "gameRankSlavbot", "slavblbi": "gameRankSlavblbi", "slavtor": "gameRankSlavtor"}
+RANK_MARK = "🔩"
 PERIODS = {"all": "gameLeadersAll", "week": "gameLeadersWeek"}
 MEDALS = ["🥇", "🥈", "🥉"]
 PLATFORM_NAMES = {"telegram": "Telegram", "discord": "Discord"}
@@ -289,15 +293,27 @@ def failed_screen(player: Player, status: int, answer: dict) -> Screen:
     return Screen([[tr("⚠️ interslavic.app teper ne odgovarja. Poprobujte znova za hvilju.", player)]])
 
 
+def rank_name(rank, player: Player) -> str:
+    """The rank's name ('' — none, or one this bot does not know yet)."""
+    return text(RANK_KEYS[rank], player) if rank in RANK_KEYS else ""
+
+
 def head(player: Player, game: dict) -> list:
-    """🤖 Slavformer · 💰 150 · ⭐ 12 — and what comes next."""
-    lines = [["🤖 ", B(text("gameTitle", player)), f" · 💰 {game.get('coins', 0)} · ⭐ {game.get('votes', 0)}"]]
+    """🤖 Slavformer · 💰 150 · ⭐ 12 · 🔩 Slavtor — and what comes next: a stage, then a rank, then a bonus."""
+    rank = rank_name(game.get("rank"), player)
+    lines = [["🤖 ", B(text("gameTitle", player)), f" · 💰 {game.get('coins', 0)} · ⭐ {game.get('votes', 0)}"
+              + (f" · {RANK_MARK} {rank}" if rank else "")]]
     stages = game.get("rules", {}).get("stages") or []
     votes = game.get("votes", 0)
     nxt = next((stage for stage in stages if stage["votes"] > votes), None)
+    ranks = sorted(game.get("rules", {}).get("ranks") or [], key=lambda one: one["votes"])
+    higher = next((one for one in ranks if one["votes"] > votes and one["id"] in RANK_KEYS), None)
     if nxt:
         lines.append([I(text("gameGoalStage", player, stage=text(STAGE_KEYS[nxt["id"]], player),
                              n=nxt["votes"] - votes))])
+    elif higher:
+        lines.append([I(text("gameGoalRank", player, rank=rank_name(higher["id"], player),
+                             n=higher["votes"] - votes))])
     elif game.get("rules"):
         every = game["rules"]["bonusEvery"]
         lines.append([I(text("gameGoalBonus", player, bonus=game["rules"]["bonus"], n=every - votes % every))])
@@ -426,6 +442,9 @@ async def vote(player: Player, word_id: str, index: int) -> Screen:
     if answer.get("became"):
         cheer = text("gameBecameRobot" if answer["became"] == "robot" else "gameBecameMorph", player)
         screen.extra.append(await figure(player, note=f"🎉 {cheer}", game=answer["game"]))
+    elif rank_name(answer.get("ranked"), player):
+        cheer = text("gameNewRank", player, rank=rank_name(answer["ranked"], player))
+        screen.extra.append(await figure(player, note=f"🎉 {RANK_MARK} {cheer}", game=answer["game"]))
     return screen
 
 
@@ -566,9 +585,11 @@ async def leaders(player: Player, period: str = "all") -> Screen:
     for leader in shown:
         place = MEDALS[leader["place"] - 1] if leader["place"] <= 3 else f"{leader['place']}."
         mine = answer.get("me") and leader["id"] == answer["me"].get("id")
+        rank = rank_name(leader.get("rank"), player)
         lines.append([f"{place} {STAGE_MARKS.get(leader['stage'], '')} ",
                       B(leader["name"]) if mine else leader["name"],
-                      f" — {leader['votes']} {text('gameLeadersWords', player)}"])
+                      f" — {leader['votes']} {text('gameLeadersWords', player)}"
+                      + (f" · {RANK_MARK} {rank}" if rank else "")])
     me = answer.get("me")
     if me and me["place"] > len(shown):
         lines += [[""], ["👤 ", text("gameLeadersYou", player, place=me["place"], n=me["votes"])]]
@@ -679,8 +700,10 @@ async def figure(player: Player, note: str = "", game: dict = None) -> Screen:
             return sign_in_screen(player)
         game = answer["game"]
     lines = [[note]] if note else []
-    lines += [["🤖 ", B(text("gameTitle", player)), " — ", text(STAGE_KEYS[game["stage"]], player)],
-              [f"⭐ {text('gameScore', player)}: {game['votes']} · 💰 {text('gameCoins', player)}: {game['coins']}"
+    rank = rank_name(game.get("rank"), player)
+    lines += [["🤖 ", B(text("gameTitle", player)), " — ", text(STAGE_KEYS[game["stage"]], player)]
+              + ([f" · {RANK_MARK} ", B(rank)] if rank else []),
+              [f"⭐ {text('gameAnswers', player)}: {game['votes']} · 💰 {text('gameCoins', player)}: {game['coins']}"
                + (f" · {text('gamePerHour', player, n=game['perHour'])}" if game.get("perHour") else "")]]
     if game.get("worn"):
         lines.append([I(worn_names(game, player))])

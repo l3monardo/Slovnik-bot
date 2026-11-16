@@ -47,7 +47,16 @@
   "gameChangeAnswer": "Izměniti odgovor",
   "gamePrevious": "Izměniti prědhodny odgovor",
   "gameComment": "Komentovati",
-  "cancel": "Odkydnuti"
+  "cancel": "Odkydnuti",
+  "gameAnswers": "Odgovory",
+  "gameGoalRank": "Slědujuči rang: {__rank__}. Ostavaje slov: {__n__}",
+  "gameNewRank": "Novy rang: {__rank__}!",
+  "gameRankMegaslav": "Megaslav",
+  "gameRankOptimusSlav": "Optimus Slav",
+  "gameRankSlavatron": "Slavatron",
+  "gameRankSlavbot": "Slavbot",
+  "gameRankSlavblbi": "Slavblbi",
+  "gameRankSlavtor": "Slavtor"
  },
  "items": {
   "paint-white": "Běla",

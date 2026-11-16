@@ -14,6 +14,8 @@ KEYS = [
     'voteUnderstand', 'voteContext', 'voteNonNative', 'voteFalseFriend', 'voteNotUnderstand',
     'gameLeaders', 'gameLeadersAll', 'gameLeadersWeek', 'gameLeadersWords', 'gameLeadersYou', 'gameLeadersEmpty',
     'gameLeadersPlayers', 'gameChangeAnswer', 'gamePrevious', 'gameComment', 'cancel',
+    'gameAnswers', 'gameGoalRank', 'gameNewRank', 'gameRankMegaslav', 'gameRankOptimusSlav', 'gameRankSlavatron',
+    'gameRankSlavbot', 'gameRankSlavblbi', 'gameRankSlavtor',
 ]
 ITEMS = ['paint-white', 'paint-beige', 'paint-yellow', 'paint-green', 'paint-blue', 'paint-violet', 'paint-cherry',
          'paint-black', 'tank', 'tracksuit', 'telnyashka', 'shirt', 'leather', 'dublenka', 'goldsuit', 'cap', 'ushanka',
