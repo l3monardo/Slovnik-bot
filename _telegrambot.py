@@ -606,6 +606,22 @@ async def want_updates():
         print(f"getUpdates: {type(e).__name__}: {e}")
 
 
+async def set_menu_button():
+    """The Menu button of the bot's private chats (left of the message field): the menu of interslavic.app inside
+    Telegram — the dictionary, Tandem, the Slavformer, the whole site (announce.menu). When the site does not
+    offer it, the button stays as it is. The commands are still listed when one types "/"."""
+    try:
+        me = await bot.get_me()
+        menu = await an.menu(me.id)
+        if not menu:
+            return
+        await bot.set_chat_menu_button(menu_button=types.MenuButtonWebApp(
+            type='web_app', text=menu['text'], web_app=types.WebAppInfo(url=menu['url'])))
+        print(f"Menu button: {menu['text']} → {menu['url']}")
+    except Exception as e:  # the bot works without it
+        print(f"Menu button: {type(e).__name__}: {e}")
+
+
 # The emoji before the interslavic.app link: from the custom emoji pack t.me/addemoji/InterslavicApp.
 # Bots may use custom emoji when their owner has Telegram Premium (Bot API 9.4); otherwise, or when the
 # pack cannot be read, the link gets the ordinary 🏴. SITE_EMOJI_ID=<id> skips the lookup, SITE_EMOJI=0
@@ -653,6 +669,7 @@ async def main():
         print("SLOVNIK_BOT_SECRET is not set: /igra (the Slavformer) will not reach interslavic.app")
     await want_updates()
     await load_site_emoji()
+    await set_menu_button()
     announcing = asyncio.create_task(an.run(an_send))  # every minute: what is new on interslavic.app
     try:
         await bot.polling(none_stop=True)

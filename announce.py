@@ -16,6 +16,9 @@ stale by then: a voice room is worth 20 minutes).
 
 /tandem shows who is looking for a language partner on the site.
 
+The Menu button (left of the message field in a private chat) opens the site's menu inside Telegram: the
+dictionary, Tandem, the Slavformer, the whole site. The bot sets it when it starts — if the site offers it.
+
 Everything here is platform-neutral: _telegrambot.py shows the screens and sends the messages.
 Needs SLOVNIK_BOT_SECRET in .env (the same as on Vercel), like the Slavformer.
 """
@@ -227,6 +230,40 @@ async def run(send):
         except Exception as e:  # the next minute tries again
             print(f"announcements: {type(e).__name__}: {e}")
         await asyncio.sleep(POLL_SECONDS)
+
+
+# ── the Menu button ────────────────────────────────────────────
+
+# MENU_BUTTON=0: the bot leaves its Menu button alone
+MENU_ENABLED = os.getenv("MENU_BUTTON", "1") != "0"
+MENU_WHY_NOT = {
+    "NO_TOKEN": "the site does not know this bot yet: set SLOVNIK_BOT_TOKEN (this bot's token) on Vercel and redeploy",
+    "OTHER_BOT": "SLOVNIK_BOT_TOKEN on Vercel is another bot's token",
+}
+
+
+async def menu(bot_id) -> dict:
+    """What the bot's Menu button should be: {"text", "url"} — the site's menu inside Telegram — or {} when it
+    is not to be set (the reason is printed). The page tells who pressed the button from what Telegram signs for
+    it, and the site checks that signature with this bot's token; so the site offers the menu only once it has
+    the token (Vercel: SLOVNIK_BOT_TOKEN), and only to the bot whose token that is (`bot_id`: getMe's id)."""
+    if not MENU_ENABLED:
+        return {}
+    if not BOT_SECRET:
+        print("Menu button: not set — SLOVNIK_BOT_SECRET is missing")
+        return {}
+    status, data = await ask("menu", bot=bot_id)
+    found = data.get("menu") if status == 200 else None
+    if isinstance(found, dict) and str(found.get("url") or "").startswith("https://") and found.get("text"):
+        return {"text": str(found["text"]), "url": str(found["url"])}
+    if status == 200:
+        why = MENU_WHY_NOT.get(data.get("reason"), "the site does not offer it")
+    elif status == 0:
+        why = "the site was not reached"
+    else:
+        why = f"the site's API does not know it yet (deploy the API; it answered {status})"
+    print(f"Menu button: not set — {why}")
+    return {}
 
 
 # ── /tandem ────────────────────────────────────────────────────

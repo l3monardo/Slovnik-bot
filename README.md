@@ -12,6 +12,7 @@ Both bots give the same answers. Telegram shows them as rich messages with real 
 - **Explanation.** A button shows the dictionary's definitions in the language you asked in and in English, then in all languages.
 - **Links to interslavic.app** at the bottom of every message (after a 🏴 emoji) and on every word. Words that exist only in the unofficial lists keep their Google Sheet link, since the site has no page for them.
 - **The Slavformer.** The word game of [interslavic.app](https://interslavic.app/game), played in the chat: say how well you understand each word, earn grivnas, turn the old car into a robot and dress it up. Every answer is your intelligibility vote in the dictionary on the site, and the game is your game there (see [The Slavformer](#the-slavformer)).
+- **The site's menu** (Telegram). The Menu button of a private chat opens the dictionary, Tandem, the Slavformer and the whole of interslavic.app inside Telegram (see [The Menu button](#the-menu-button)).
 - **Announcements from interslavic.app** (Telegram). News of the site, new language partners, voice rooms that open, new events, new articles of Kolozor and of the Interslavic Wikipedia — in the chats that asked for them, with the picture when there is one (see [Announcements](#announcements)).
 - **Who is looking for a language partner:** `/tandem`.
 - **Cyrillic or Latin.** A Cyrillic command or keyword (`/ру`, `спр`, `скл`) gives Cyrillic tables, labels and buttons.
@@ -97,6 +98,7 @@ Create the bot with [@BotFather](https://t.me/BotFather). The 🏴 before the li
 | `SLOVNIK_BOT_SECRET` | The Slavformer, the announcements and `/tandem`: the secret shared with the site's API (the same value on Vercel). |
 | `ANNOUNCE=0` | Telegram: no announcements from interslavic.app (the bot does not ask the site for them). |
 | `ANNOUNCE_EVERY` | Telegram: how often the site is asked for something new, in seconds. Default 60. |
+| `MENU_BUTTON=0` | Telegram: the bot leaves its Menu button alone (see [The Menu button](#the-menu-button)). |
 | `RICH_MESSAGES=0` | Telegram: never send rich messages, only ordinary ones. |
 | `TELEGRAM_API` | Telegram: address of your own Bot API server. |
 | `SITE_EMOJI=0` | Telegram: the ordinary 🏴 instead of the custom emoji. |
@@ -118,6 +120,21 @@ The Telegram bot tells a chat what happens on interslavic.app: news of the site,
 **How it works.** The bot keeps nothing itself: the chats' choices and what there is to tell are on the site (`POST /api/community/botnews` with `SLOVNIK_BOT_SECRET`, see `api/_lib/botnews.ts` in interslavic-hub). Once a minute the bot asks for what is new, sends it and says how far it got — so nothing is told twice, and what happened while the bot was not running is told when it starts again, unless it is stale by then (a voice room is worth 20 minutes, the rest two or three days). The site finds the new articles of Kolozor and of the Wikipedia by itself, looking there every ten minutes.
 
 `/tandem` asks the same address for the newest 30 people who look for a language partner.
+
+## The Menu button
+
+In a private chat the Telegram bot has a **Menu** button left of the message field. It opens the menu of interslavic.app inside Telegram — the same one @Interslavic_app has:
+
+1. **Slovnik** — the dictionary;
+2. **Tandem** — language partners, voice rooms, requests, and this bot's announcements for the chat (the same switches as `/obvestky`);
+3. **Slavformer** — the game's page;
+4. **Full app** — the whole site.
+
+The pages open signed in as the person's Telegram account. The commands are still listed when one types `/`.
+
+**Setup.** The page learns who pressed the button from what Telegram signs for it, and the site checks that signature with this bot's token. So the site has to know the token: on Vercel (the API's project → Settings → Environment Variables) set `SLOVNIK_BOT_TOKEN` to the same value as `TELEGRAM_TOKEN` in the bot's `.env`, then redeploy. The token is used there for that check only.
+
+When the bot starts it asks the site whether the menu is offered to it (`POST /api/community/botnews`, `menu`) and sets the button; the console says `Menu button: Menu → https://interslavic.app/tg/`, or why it was not set (the token is missing on Vercel, or is another bot's). Until then the button stays as it was. `MENU_BUTTON=0` in `.env` makes the bot leave the button alone; to get the list of commands back on the button, use `/setmenubutton` in @BotFather.
 
 ## The Slavformer
 
