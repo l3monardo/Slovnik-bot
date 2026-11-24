@@ -14,6 +14,7 @@ import time
 
 import disnake
 
+import announce
 import answers
 import dc_format as dfmt
 import isv_tools as isv
@@ -98,6 +99,11 @@ async def wikipedia(message, text):
 
 async def fraznik(message, text):
     await deliver(message, answers.fraznik(text))
+
+
+async def tandem(message, text):
+    """.tandem: who is looking for a language partner on interslavic.app."""
+    await deliver(message, [answers.Text(await announce.tandem(fmt.script_of(text.split()[0] if text else "")))])
 
 
 def lesson(name):
@@ -213,6 +219,8 @@ for _name in answers.WIKI_COMMANDS:
     ROUTES[_name] = wikipedia
 for _name in answers.FRAZNIK_COMMANDS:
     ROUTES[_name] = fraznik
+for _name in announce.TANDEM_COMMANDS:
+    ROUTES[_name] = tandem
 for _name in answers.UPDATE_COMMANDS + ['update']:
     ROUTES[_name] = update
 for _lesson, _names in answers.POUKY_COMMANDS.items():

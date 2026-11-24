@@ -12,6 +12,8 @@ Both bots give the same answers. Telegram shows them as rich messages with real 
 - **Explanation.** A button shows the dictionary's definitions in the language you asked in and in English, then in all languages.
 - **Links to interslavic.app** at the bottom of every message (after a 🏴 emoji) and on every word. Words that exist only in the unofficial lists keep their Google Sheet link, since the site has no page for them.
 - **The Slavformer.** The word game of [interslavic.app](https://interslavic.app/game), played in the chat: say how well you understand each word, earn grivnas, turn the old car into a robot and dress it up. Every answer is your intelligibility vote in the dictionary on the site, and the game is your game there (see [The Slavformer](#the-slavformer)).
+- **Announcements from interslavic.app** (Telegram). News of the site, new language partners, voice rooms that open, new events, new articles of Kolozor and of the Interslavic Wikipedia — in the chats that asked for them, with the picture when there is one (see [Announcements](#announcements)).
+- **Who is looking for a language partner:** `/tandem`.
 - **Cyrillic or Latin.** A Cyrillic command or keyword (`/ру`, `спр`, `скл`) gives Cyrillic tables, labels and buttons.
 
 ## Commands
@@ -29,6 +31,8 @@ Commands start with `/` in Telegram and `.` in Discord (`/` works in Discord too
 | `/wiki en katana`, `/wiki_summary ru sobaka` | Wikipedia lookups. |
 | `/help` (`/start` in Telegram) and the lesson commands (`/pouka1` … `/pouka9`) | Help texts (see `pouky.yaml`). |
 | `.pravila` | The Discord server rules (Discord only). |
+| `/tandem` (`/тандем`) | Who is looking for a language partner on interslavic.app: names, the languages they help with and the ones they learn. |
+| `/obvestky` (`/обвесткы`, `/notify`) | Telegram: which announcements from interslavic.app this chat gets. |
 | `/igra` (`/игра`, `/slavformer`) | The Slavformer: the next word to answer. |
 | `/robot`, `/magazin`, `/lideri`, `/vyjdi` | Your Slavformer as a picture, its shop, the leaders, and signing the bot out of your account. |
 | `/obnovi slovnik\|words\|suggestions\|fraznik\|wiki list\|cognates` | Reload data (`slovnik` = `words`, the official dictionary); without an argument, reload everything. |
@@ -90,13 +94,30 @@ Create the bot with [@BotFather](https://t.me/BotFather). The 🏴 before the li
 | `ISV_ORTHOGRAPHY=etymological` | Forms tables in etymological spelling. Default is standard, as on the site. |
 | `SITE_API` | Site API address. Default `https://interslavic-api.vercel.app/api`. |
 | `SITE_API_TIMEOUT` | Seconds to wait for the site API. Default 6. |
-| `SLOVNIK_BOT_SECRET` | The Slavformer: the secret shared with the site's API (the same value on Vercel). |
+| `SLOVNIK_BOT_SECRET` | The Slavformer, the announcements and `/tandem`: the secret shared with the site's API (the same value on Vercel). |
+| `ANNOUNCE=0` | Telegram: no announcements from interslavic.app (the bot does not ask the site for them). |
+| `ANNOUNCE_EVERY` | Telegram: how often the site is asked for something new, in seconds. Default 60. |
 | `RICH_MESSAGES=0` | Telegram: never send rich messages, only ordinary ones. |
 | `TELEGRAM_API` | Telegram: address of your own Bot API server. |
 | `SITE_EMOJI=0` | Telegram: the ordinary 🏴 instead of the custom emoji. |
 | `SITE_EMOJI_ID` | Telegram: ID of the custom emoji to use; skips the lookup in the pack. |
 | `SITE_EMOJI_SET` | Telegram: custom emoji pack to look in. Default `InterslavicApp`. |
 | `DISCORD_SITE_EMOJI` | Discord: the emoji before the link, such as `<:interslavic:1234567890>`. |
+
+## Announcements
+
+The Telegram bot tells a chat what happens on interslavic.app: news of the site, new language partners, voice rooms that open, new events, new articles of Kolozor and of the Interslavic Wikipedia. A news item, a voice room and an article come with their picture when they have one. Under each announcement is a button that opens it.
+
+**Nothing is sent to a chat that did not ask.**
+
+- **A person** writes `/obvestky` to the bot in a private chat and ticks the kinds they want. The first time someone uses the bot in a private chat, the bot offers this once ("Hčete li dostavati tut novosti…"), and never again.
+- **A group or a channel:** an admin writes `/obvestky` there and ticks the kinds. In a group with topics the announcements go to the topic the command was written in. Others who press the buttons only get a note. In a channel the bot has to be an admin (otherwise it neither sees the command nor may post).
+
+`/obvestky` again changes the choice; "Izključiti vse" stops everything. A chat that blocked or removed the bot is forgotten.
+
+**How it works.** The bot keeps nothing itself: the chats' choices and what there is to tell are on the site (`POST /api/community/botnews` with `SLOVNIK_BOT_SECRET`, see `api/_lib/botnews.ts` in interslavic-hub). Once a minute the bot asks for what is new, sends it and says how far it got — so nothing is told twice, and what happened while the bot was not running is told when it starts again, unless it is stale by then (a voice room is worth 20 minutes, the rest two or three days). The site finds the new articles of Kolozor and of the Wikipedia by itself, looking there every ten minutes.
+
+`/tandem` asks the same address for the newest 30 people who look for a language partner.
 
 ## The Slavformer
 
@@ -127,6 +148,8 @@ For the Telegram menu, add the commands in @BotFather (`/setcommands`):
 
 ```
 help - All commands
+tandem - Who is looking for a language partner
+obvestky - Announcements from interslavic.app
 igra - Slavformer: the word game
 robot - My Slavformer
 magazin - The Slavformer's shop

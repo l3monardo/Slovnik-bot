@@ -11,6 +11,7 @@ import isv_tools as isv
 import tg_format as fmt
 import answers
 import slavformer as sf
+import announce as an
 from bot_config import *
 
 
@@ -217,6 +218,7 @@ async def deliver(message, answers):
             await send_doc(message, answer["doc"], answer["buttons"])
         else:
             await reply(message, answer["text"], image=answer["image"])
+    await an_offer(message)
 
 
 @bot.message_handler(commands=answers.DICTIONARY_COMMANDS)
@@ -394,6 +396,148 @@ def pressed_before(call) -> bool:
     return False
 
 
+# ── announcements from interslavic.app, /tandem (announce.py) ──
+
+async def an_is_admin(chat, user, sender_chat=None) -> bool:
+    """Whoever may change a chat's announcements: the person in their own chat, an admin of a group or channel."""
+    if chat.type == 'private':
+        return True
+    # written in the chat's own name: an anonymous admin of a group, or a post in a channel
+    if sender_chat is not None and sender_chat.id == chat.id:
+        return True
+    if user is None:
+        return False
+    try:
+        member = await bot.get_chat_member(chat.id, user.id)
+        return member.status in ('creator', 'administrator')
+    except Exception as e:
+        print(f"getChatMember: {type(e).__name__}: {e}")
+        return False
+
+
+def an_chat(message) -> dict:
+    chat = message.chat
+    return an.chat_fields(chat.id, chat.type, chat.title or chat.first_name or '', topic_of(message))
+
+
+async def an_offer(message):
+    """Once in a private chat's life: "do you want the news of interslavic.app here?" """
+    try:
+        chat = message.chat
+        if await an.may_offer(chat.id, chat.type, chat.first_name or ''):
+            command = (message.text or '').split()[0] if (message.text or '').startswith('/') else ''
+            text, rows = an.offer_screen(fmt.script_of(command))
+            await bot.send_message(chat.id, text, reply_markup=keyboard(rows))
+    except Exception as e:
+        print(f"offer: {type(e).__name__}: {e}")
+
+
+@bot.channel_post_handler(commands=an.COMMANDS)
+@bot.message_handler(commands=an.COMMANDS)
+async def handle_announcements(message):
+    """/obvestky: the chat's switches — a person's own, or (for an admin) a group's or a channel's."""
+    script = fmt.script_of((message.text or '').split()[0])
+    thread = topic_of(message)
+    try:
+        if not await an_is_admin(message.chat, message.from_user, getattr(message, 'sender_chat', None)):
+            await bot.send_message(message.chat.id, fmt.tr(an.ADMINS_ONLY, script), message_thread_id=thread,
+                                   reply_to_message_id=message.message_id, allow_sending_without_reply=True)
+            return
+        an._asked.add(message.chat.id)  # (whoever opened the switches needs no offer)
+        prefs, _ = await an.chat_prefs(an_chat(message))
+        if prefs is None:
+            await bot.send_message(message.chat.id, an.say(an.NOT_REACHED, script), message_thread_id=thread)
+            return
+        text, rows = an.settings_screen(prefs, message.chat.type, script, bool(thread))
+        await bot.send_message(message.chat.id, text, parse_mode='HTML', reply_markup=keyboard(rows),
+                               message_thread_id=thread)
+    except Exception as e:
+        print(f"obvestky: {type(e).__name__}: {e}")
+        await reply_error(message)
+
+
+@bot.callback_query_handler(func=lambda call: (call.data or '').startswith('an:'))
+async def handle_announcements_button(call):
+    parsed = an.parse_button(call.data)
+    message = call.message
+    try:
+        if parsed is None or message is None:
+            await bot.answer_callback_query(call.id)
+            return
+        action, arg, script = parsed
+        if not await an_is_admin(message.chat, call.from_user):
+            await bot.answer_callback_query(call.id, text=fmt.tr(an.ADMINS_ONLY, script), show_alert=True)
+            return
+        if action == 'no':
+            await bot.answer_callback_query(call.id)
+            await bot.edit_message_text(fmt.tr(an.OFFER_DECLINED, script), message.chat.id, message.message_id)
+            return
+        chat = an_chat(message)
+        prefs = (await an.chat_prefs(chat))[0] if action == 'open' else await an.press(chat, action, arg)
+        if prefs is None:
+            await bot.answer_callback_query(call.id, text=an.say(an.NOT_REACHED, script), show_alert=True)
+            return
+        await bot.answer_callback_query(call.id)
+        text, rows = an.settings_screen(prefs, message.chat.type, script, bool(topic_of(message)))
+        try:
+            await bot.edit_message_text(text, message.chat.id, message.message_id, parse_mode='HTML',
+                                        reply_markup=keyboard(rows))
+        except asyncio_helper.ApiTelegramException as e:
+            if 'not modified' not in str(e):
+                raise
+    except Exception as e:
+        print(f"obvestky button: {type(e).__name__}: {e}")
+
+
+@bot.message_handler(commands=an.TANDEM_COMMANDS)
+async def handle_tandem(message):
+    """/tandem: who is looking for a language partner on interslavic.app."""
+    try:
+        script = fmt.script_of((message.text or '').split()[0])
+        await deliver(message, [answers.Text(await an.tandem(script))])
+    except Exception as e:
+        print(f"tandem: {type(e).__name__}: {e}")
+        await reply_error(message)
+
+
+def an_gone(error) -> bool:
+    """The bot cannot write there any more: blocked by the person, removed from the group, the chat is gone."""
+    text = str(getattr(error, 'description', '') or error).lower()
+    return getattr(error, 'error_code', 0) == 403 or 'chat not found' in text or 'deactivated' in text
+
+
+async def an_send(chat: dict, item: dict) -> str:
+    """One announcement to one chat: with its picture when it has one and Telegram can fetch it."""
+    markup = types.InlineKeyboardMarkup()
+    markup.row(types.InlineKeyboardButton(an.OPEN, url=item['url']))
+    where = dict(reply_markup=markup, message_thread_id=chat.get('thread') or None)
+    for attempt in range(2):
+        try:
+            if item.get('image') and len(item['text']) <= 1000:
+                try:
+                    await bot.send_photo(chat['id'], item['image'], caption=item['text'], parse_mode='HTML', **where)
+                    return 'ok'
+                except asyncio_helper.ApiTelegramException as e:
+                    if an_gone(e) or e.error_code == 429:
+                        raise
+                    print(f"announcement {item.get('id')}: without its picture ({e.description})")
+            await bot.send_message(chat['id'], item['text'], parse_mode='HTML', disable_web_page_preview=True, **where)
+            return 'ok'
+        except asyncio_helper.ApiTelegramException as e:
+            if an_gone(e):
+                return 'gone'
+            wait = ((e.result_json or {}).get('parameters') or {}).get('retry_after')
+            if e.error_code == 429 and wait and attempt == 0:
+                await asyncio.sleep(min(float(wait), 30) + 0.5)  # Telegram asks for a pause: once more after it
+                continue
+            print(f"announcement {item.get('id')} to {chat['id']}: {e.description}")
+            return 'failed'
+        except Exception as e:
+            print(f"announcement {item.get('id')} to {chat['id']}: {type(e).__name__}: {e}")
+            return 'failed'
+    return 'failed'
+
+
 @bot.callback_query_handler(func=lambda call: True)
 async def handle_button(call):
     try:
@@ -447,14 +591,15 @@ for _name, _commands in answers.POUKY_COMMANDS.items():
 
 
 async def want_updates():
-    """Tell Telegram which updates the bot reads: messages and, for the buttons under a word, callback
-    queries. Asked once, directly: the setting is remembered, and nothing is taken from the queue."""
+    """Tell Telegram which updates the bot reads: messages, for the buttons under a word callback queries,
+    and a channel's posts (its admin writes /obvestky there). Asked once, directly: the setting is remembered,
+    and nothing is taken from the queue."""
     if Rich.session is None or Rich.session.closed:
         Rich.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
     url = f"{TELEGRAM_API}/bot{settings['token_telegram']}/getUpdates"
     try:
         async with Rich.session.post(url, json={
-            'allowed_updates': ['message', 'callback_query'], 'timeout': 0, 'limit': 1,
+            'allowed_updates': ['message', 'callback_query', 'channel_post'], 'timeout': 0, 'limit': 1,
         }) as response:
             await response.read()
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
@@ -508,7 +653,11 @@ async def main():
         print("SLOVNIK_BOT_SECRET is not set: /igra (the Slavformer) will not reach interslavic.app")
     await want_updates()
     await load_site_emoji()
-    await bot.polling(none_stop=True)
+    announcing = asyncio.create_task(an.run(an_send))  # every minute: what is new on interslavic.app
+    try:
+        await bot.polling(none_stop=True)
+    finally:
+        announcing.cancel()
 #    await bot.infinity_polling()
 
 if __name__ == "__main__":
