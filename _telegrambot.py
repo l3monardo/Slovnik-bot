@@ -1,4 +1,5 @@
 import os
+import io
 import re
 import time
 import asyncio
@@ -506,21 +507,54 @@ def an_gone(error) -> bool:
     return getattr(error, 'error_code', 0) == 403 or 'chat not found' in text or 'deactivated' in text
 
 
+# An announcement's picture as it is handed to Telegram, by the item's id: the bytes downloaded here (a picture
+# of another site), then the id Telegram gave the file once one chat took it, or just its address.
+an_pictures = {}
+
+
+async def an_picture(item: dict):
+    """The item's picture: (bytes, file name) to upload, or a string — an address or Telegram's id of the file."""
+    key = item.get('id')
+    if key not in an_pictures:
+        url = item.get('image')
+        found = url
+        if url and not an.ours(url):
+            found = await an.picture(url) or url
+        if len(an_pictures) > 40:
+            an_pictures.clear()
+        an_pictures[key] = found
+    return an_pictures[key]
+
+
 async def an_send(chat: dict, item: dict) -> str:
-    """One announcement to one chat: with its picture when it has one and Telegram can fetch it."""
+    """One announcement to one chat: with its picture when it has one and Telegram takes it. A picture of another
+    site is uploaded as a file with the first chat, and the others get it by the id Telegram gave it."""
     markup = types.InlineKeyboardMarkup()
-    markup.row(types.InlineKeyboardButton(an.OPEN, url=item['url']))
+    for text, url in an.buttons(item):
+        markup.row(types.InlineKeyboardButton(text, url=url))
     where = dict(reply_markup=markup, message_thread_id=chat.get('thread') or None)
     for attempt in range(2):
         try:
-            if item.get('image') and len(item['text']) <= 1000:
+            photo = await an_picture(item) if len(item['text']) <= 1000 else None
+            if photo:
+                uploaded = isinstance(photo, tuple)
                 try:
-                    await bot.send_photo(chat['id'], item['image'], caption=item['text'], parse_mode='HTML', **where)
+                    if uploaded:
+                        handed = io.BytesIO(photo[0])
+                        handed.name = photo[1]
+                    else:
+                        handed = photo
+                    message = await bot.send_photo(chat['id'], handed, caption=item['text'], parse_mode='HTML', **where)
+                    if uploaded and getattr(message, 'photo', None):
+                        an_pictures[item.get('id')] = message.photo[-1].file_id
                     return 'ok'
                 except asyncio_helper.ApiTelegramException as e:
                     if an_gone(e) or e.error_code == 429:
                         raise
                     print(f"announcement {item.get('id')}: without its picture ({e.description})")
+                    if uploaded and 'rights' not in str(e.description).lower():
+                        # Telegram does not take the file itself: the other chats get the address to try
+                        an_pictures[item.get('id')] = item.get('image')
             await bot.send_message(chat['id'], item['text'], parse_mode='HTML', disable_web_page_preview=True, **where)
             return 'ok'
         except asyncio_helper.ApiTelegramException as e:

@@ -119,6 +119,8 @@ The Telegram bot tells a chat what happens on interslavic.app: news of the site,
 
 **How it works.** The bot keeps nothing itself: the chats' choices and what there is to tell are on the site (`POST /api/community/botnews` with `SLOVNIK_BOT_SECRET`, see `api/_lib/botnews.ts` in interslavic-hub). Once a minute the bot asks for what is new, sends it and says how far it got — so nothing is told twice, and what happened while the bot was not running is told when it starts again, unless it is stale by then (a voice room is worth 20 minutes, the rest two or three days). The site finds the new articles of Kolozor and of the Wikipedia by itself, looking there every ten minutes.
 
+**Pictures and buttons.** A picture on the site's own server (a news item, a voice room) Telegram downloads by its address. A picture of another site — an article of Kolozor or of the Wikipedia — the bot downloads itself and hands to Telegram as a file, once; the other chats get it by the id Telegram gave it. (Telegram's own downloader is refused by some sites: kolozor.com answered it with a page instead of the picture, and the announcement came without one. When the bot cannot get the picture either, the console says `picture from kolozor.com: …` and the text goes alone.) An announcement has one button, "Otvoriti", unless the site names its own: an article of Kolozor has two, "Otvoriti na Interslavic.app" and "Otvoriti na Kolozor.com".
+
 `/tandem` asks the same address for the newest 30 people who look for a language partner.
 
 ## The Menu button

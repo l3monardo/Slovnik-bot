@@ -24,6 +24,7 @@ Needs SLOVNIK_BOT_SECRET in .env (the same as on Vercel), like the Slavformer.
 """
 import asyncio
 import os
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -100,6 +101,51 @@ async def ask(action: str, **fields):
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
         print(f"botnews {action}: {type(e).__name__} {e}")
         return 0, {}
+
+
+# ── pictures ─────────────────────────────────────────────────
+
+PICTURE_MAX = 8 * 1024 * 1024
+PICTURE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+
+
+def ours(url: str) -> bool:
+    """A picture on the site's own API (news, voice rooms): Telegram downloads those by their address."""
+    return urlsplit(url).netloc == urlsplit(site_api.API_BASE).netloc
+
+
+async def picture(url: str):
+    """A picture from another site (an article of Kolozor, of the Wikipedia), downloaded here: (bytes, a file
+    name) — or None when it is not a picture Telegram takes, is too big or does not come (why is printed).
+    Telegram can fetch a picture by its address itself, but some sites refuse its downloader: kolozor.com
+    answered it with a page instead of the picture, and the announcement went out without one. A file handed
+    over cannot be refused."""
+    host = urlsplit(url).netloc
+    try:
+        session = await _get_session()
+        async with session.get(url, headers={"Accept": "image/jpeg,image/png,image/webp,image/*;q=0.8"}) as response:
+            kind = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if response.status != 200 or kind not in PICTURE_TYPES:
+                print(f"picture from {host}: not a picture ({response.status} {kind or 'no type'})")
+                return None
+            data = bytearray()
+            async for chunk in response.content.iter_chunked(65536):
+                data += chunk
+                if len(data) > PICTURE_MAX:
+                    print(f"picture from {host}: too big")
+                    return None
+            return (bytes(data), f"picture.{PICTURE_TYPES[kind]}") if data else None
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+        print(f"picture from {host}: {type(e).__name__} {e}")
+        return None
+
+
+def buttons(item: dict) -> list:
+    """An announcement's buttons, one under the other: [(text, address)]. The site names them when one "Open"
+    is not enough (an article of Kolozor: on interslavic.app, on kolozor.com); else one button opens `url`."""
+    named = [(str(button["text"]), str(button["url"])) for button in item.get("buttons") or []
+             if isinstance(button, dict) and button.get("text") and str(button.get("url") or "").startswith("https://")]
+    return named or [(OPEN, item["url"])]
 
 
 def say(text: str, script: str = "latn") -> str:
@@ -193,7 +239,7 @@ async def may_offer(chat_id, chat_type: str, title: str = "") -> bool:
 
 async def tick(send) -> int:
     """Asks the site what is new and tells the chats that want it. `send(chat, item)` sends one announcement
-    to one chat ({"id", "kinds", "thread"}; {"id", "kind", "text", "url", "image"}) and answers "ok", "gone"
+    to one chat ({"id", "kinds", "thread"}; {"id", "kind", "text", "url", "image", "buttons"}) and answers "ok", "gone"
     (the bot was blocked or removed: the chat is forgotten) or "failed". Returns how many were sent."""
     status, data = await ask("feed")
     if status != 200:
