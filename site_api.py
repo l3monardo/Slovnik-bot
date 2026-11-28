@@ -63,13 +63,21 @@ async def _get(path: str, params: dict, ttl: int):
     return data
 
 
-async def word_forms(isv: str, addition: str, details: str, script: str = "latn", orth: str = "standard"):
-    """The tables of forms of a dictionary entry (its "isv", "addition" and "partOfSpeech" cells)."""
+async def word_forms(isv: str, addition: str, details: str, script: str = "latn", orth: str = "standard",
+                     more: bool = False, ocs: bool = False):
+    """The tables of forms of a dictionary entry (its "isv", "addition" and "partOfSpeech" cells). The site's two
+    switches: `more`, all the tenses (also the imperfect, the pluperfect, the aorist); `ocs`, the Old Church Slavonic
+    forms (the dual, the old declension of oko, nebo, imę …). The answer's "switches" says which of them change
+    the word's tables."""
     params = {"w": isv, "d": details, "script": script}
     if addition:
         params["add"] = addition
     if orth == "etymological":
         params["orth"] = orth
+    if more:
+        params["more"] = "1"
+    if ocs:
+        params["ocs"] = "1"
     return await _get("community/forms", params, 24 * 3600)
 
 

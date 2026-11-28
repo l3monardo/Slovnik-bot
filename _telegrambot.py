@@ -39,11 +39,12 @@ class Rich:
     session = None
 
 
-async def call_rich(payload: dict):
-    """sendRichMessage. Returns (sent, error code, description)."""
+async def call_rich(payload: dict, method: str = 'sendRichMessage'):
+    """sendRichMessage (or editMessageText with a rich_message, Bot API 10.1). Returns (sent, error code,
+    description)."""
     if Rich.session is None or Rich.session.closed:
         Rich.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
-    url = f"{TELEGRAM_API}/bot{settings['token_telegram']}/sendRichMessage"
+    url = f"{TELEGRAM_API}/bot{settings['token_telegram']}/{method}"
     try:
         async with Rich.session.post(url, json=payload) as response:
             data = await response.json(content_type=None)
@@ -133,6 +134,48 @@ async def send_doc(message, blocks, buttons=None):
         message.chat.id, fmt.render_plain(blocks), reply_to_message_id=message.message_id,
         allow_sending_without_reply=True, reply_markup=keyboard(buttons), message_thread_id=thread)
     return True
+
+
+def inline_keyboard(buttons):
+    return {'inline_keyboard': [[{'text': text, 'callback_data': data} for text, data in row] for row in buttons]}
+
+
+async def redraw(message, blocks, buttons) -> bool:
+    """A switch under a word's tables: the same message with its tables drawn again (editMessageText).
+    False when that message cannot take them — an ordinary message whose tables took several messages —
+    and the answer then goes as a new one."""
+    raw = getattr(message, 'json', None) or {}
+    if raw.get('rich_message') and Rich.level > 0:
+        for level in (2, 1):
+            if level > Rich.level:
+                continue
+            for _ in range(2):  # (once more when Telegram refused only the custom emoji)
+                had_emoji = fmt.SITE_EMOJI_ID
+                payload = {'chat_id': message.chat.id, 'message_id': message.message_id,
+                           'rich_message': {'html': fmt.render_rich(blocks, level)}}
+                if buttons:
+                    payload['reply_markup'] = inline_keyboard(buttons)
+                edited, code, description = await call_rich(payload, 'editMessageText')
+                if edited or 'not modified' in description:
+                    return True
+                refused(f'edit, level {level}', code, description)
+                if not (had_emoji and drop_site_emoji(description)):
+                    break
+        return False
+    # an ordinary message: only when the tables were one message (it begins with the word, as the new one does)
+    parts = fmt.render_classic(blocks)
+    first_line = fmt.render_plain(blocks).strip().split('\n')[0].strip()
+    if len(parts) != 1 or (message.text or '').strip().split('\n')[0].strip() != first_line:
+        return False
+    try:
+        await bot.edit_message_text(parts[0], message.chat.id, message.message_id, parse_mode='HTML',
+                                    disable_web_page_preview=True, reply_markup=keyboard(buttons))
+        return True
+    except Exception as e:
+        if 'not modified' in str(e):
+            return True
+        print(f"Telegram refused to edit the message: {e}")
+        return False
 
 
 def markdown_v2(text: str) -> str:
@@ -580,6 +623,15 @@ async def handle_button(call):
             await bot.answer_callback_query(call.id)
             return
         script = parsed[4]
+        if answers.is_switch(parsed):
+            # "Vse vrěmena", "Staroslovjanske formy": the same tables again, in place of these
+            await bot.answer_callback_query(call.id)
+            answer_list = await answers.button(parsed)
+            first = answer_list[0] if answer_list else {}
+            if "doc" in first and await redraw(call.message, first["doc"], first["buttons"]):
+                return
+            await deliver(call.message, answer_list)
+            return
         if pressed_before(call):
             await bot.answer_callback_query(call.id, text=fmt.tr("Uže pokazano niže ↓", script))
             return

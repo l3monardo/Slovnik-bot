@@ -354,6 +354,11 @@ BUTTON_TEXT = {
     "explanation": "Pokazati objasnjenje",
 }
 
+# The switches under a word's tables, as above the tables on interslavic.app: t = all the tenses (the imperfect,
+# the pluperfect, the aorist), o = the Old Church Slavonic forms (the dual, the old declensions)
+SWITCHES = (("t", "tenses", "Vse vrěmena"), ("o", "ocs", "Staroslovjanske formy"))
+SWITCH_ON, SWITCH_OFF = "✅", "⬜"
+
 
 def _share(part: int, total: int) -> int:
     return round(part / total * 100) if total else 0
@@ -454,6 +459,27 @@ def word_buttons(card: dict, script: str) -> list:
     if card["sheet"] == "words" and card["id"].isdigit():
         rows.append([(tr(BUTTON_TEXT["explanation"], script), f"e:w:{card['id']}:{lang}:{alphabet}")])
     return [row for row in rows if len(row[0][1].encode()) <= 64]
+
+
+def forms_buttons(card: dict, script: str, switches: dict, flags: str = "") -> list:
+    """The switches under a word's tables: one row, each switch the site says would change the tables
+    (`switches`: {"tenses": …, "ocs": …}). `flags` are the ones on ("t", "o", "to"); a press sends the same
+    word with that one turned over: F:sheet:id:language:alphabet:flags."""
+    sheet_code = SHEET_CODES.get(card["sheet"])
+    if not sheet_code or not card.get("id"):
+        return []
+    alphabet = "c" if script == "cyrl" else "l"
+    lang = card.get("lang") or "en"
+    row = []
+    for flag, key, text in SWITCHES:
+        if not (switches or {}).get(key):
+            continue
+        on = flag in flags
+        turned = "".join(f for f, _, _ in SWITCHES if (f in flags) != (f == flag))
+        data = f"F:{sheet_code}:{card['id']}:{lang}:{alphabet}:{turned}"
+        if len(data.encode()) <= 64:
+            row.append((f"{SWITCH_ON if on else SWITCH_OFF} {tr(text, script)}", data))
+    return [row] if row else []
 
 
 SHEET_CODES = {"words": "w", "suggestions": "s", "Wiki list": "l", "Cognates": "c"}

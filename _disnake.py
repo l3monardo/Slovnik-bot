@@ -287,6 +287,22 @@ async def on_button_click(inter: disnake.MessageInteraction):
         return
     script = parsed[4]
     try:
+        if answers.is_switch(parsed):
+            # "Vse vrěmena", "Staroslovjanske formy": the same tables again, in place of these
+            await inter.response.defer()
+            answer_list = await answers.button(parsed)
+            first = answer_list[0] if answer_list else {}
+            messages = dfmt.render(first["doc"]) if "doc" in first else []
+            old = inter.message.embeds[0].title if inter.message.embeds else None
+            # (only when they were one message: it begins with the word, as the new one does)
+            if len(messages) == 1 and old == messages[0]["embeds"][0].get("title"):
+                print(fmt.render_plain(first["doc"]))
+                await inter.edit_original_message(
+                    embeds=[disnake.Embed.from_dict(embed) for embed in messages[0]["embeds"]],
+                    components=action_rows(first["buttons"]))
+                return
+            await deliver(inter.message, answer_list, inter.followup)
+            return
         if pressed_before(inter.message.id, data):
             await inter.response.send_message(fmt.tr("Uže pokazano niže ↓", script), ephemeral=True)
             return

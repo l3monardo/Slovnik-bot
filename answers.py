@@ -63,18 +63,20 @@ def split_forms_word(slova: str):
     return slova, None, 'latn'
 
 
-async def forms(card: dict, script: str) -> list:
-    """The declension or conjugation of a word, as interslavic.app shows it."""
+async def forms(card: dict, script: str, flags: str = "") -> list:
+    """The declension or conjugation of a word, as interslavic.app shows it, with the site's two switches under
+    it. `flags`: the switches that are on — "t" all the tenses, "o" the Old Church Slavonic forms."""
     if not fmt.forms_kind(card["isv"], card.get("partOfSpeech", "")):
         return [Doc(fmt.no_forms_doc(card, script))]
     # (the lists of proposed words mark some entries with "#" or "!")
     word = card["isv"].replace("#", "").replace("!", "").strip()
-    data = await site_api.word_forms(word, card.get("addition", ""), card["partOfSpeech"], script, ORTHOGRAPHY)
+    data = await site_api.word_forms(word, card.get("addition", ""), card["partOfSpeech"], script, ORTHOGRAPHY,
+                                     more="t" in flags, ocs="o" in flags)
     if data is None:
         return [Doc(fmt.error_doc(fmt.tr("Ne mogu dostati tabelu iz slovnika. Poprobuj pozdněje.", script)))]
     if not data.get("sections"):
         return [Doc(fmt.no_forms_doc(card, script))]
-    return [Doc(fmt.forms_doc(card, data, script))]
+    return [Doc(fmt.forms_doc(card, data, script), fmt.forms_buttons(card, script, data.get("switches"), flags))]
 
 
 async def explanation(card: dict, lang: str, script: str) -> list:
@@ -148,20 +150,32 @@ async def dictionary(text: str) -> list:
 
 def parse_button(data: str):
     """"f:w:474:ru:l" → ("f", "w", "474", "ru", "latn"); None for anything else.
-    f: the forms, e: the explanation; w/s/l/c: the sheet (fmt.SHEET_CODES); l/c: Latin or Cyrillic."""
+    f: the forms, e: the explanation; w/s/l/c: the sheet (fmt.SHEET_CODES); l/c: Latin or Cyrillic.
+    "F:w:474:ru:l:to" → ("F", "w", "474", "ru", "latn", "to"): a switch under the tables — the same forms again,
+    in place of the message, with these switches on (t: all the tenses, o: the OCS forms)."""
     parts = (data or '').split(':')
+    if len(parts) == 6 and parts[0] == 'F':
+        flags = ''.join(f for f in 'to' if f in parts[5])
+        return parts[0], parts[1], parts[2], parts[3], 'cyrl' if parts[4] == 'c' else 'latn', flags
     if len(parts) != 5 or parts[0] not in ('f', 'e'):
         return None
     return parts[0], parts[1], parts[2], parts[3], 'cyrl' if parts[4] == 'c' else 'latn'
 
 
+def is_switch(parsed) -> bool:
+    """A switch under a word's tables: its answer takes the place of the message (the bots edit it)."""
+    return bool(parsed) and parsed[0] == 'F'
+
+
 async def button(parsed) -> list:
-    what, sheet_code, word_id, lang, script = parsed
+    what, sheet_code, word_id, lang, script = parsed[:5]
     sheet = fmt.SHEET_NAMES.get(sheet_code)
     row = isv.find_by_id(word_id, sheet) if sheet else None
     if row is None:
         return [Doc(fmt.error_doc(fmt.tr("Togo slova uže nema v slovniku.", script)))]
     card = isv.card_data(row, sheet, lang)
+    if what == 'F':
+        return await forms(card, script, parsed[5])
     if what == 'f':
         return await forms(card, script)
     return await explanation(card, lang, script)

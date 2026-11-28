@@ -196,6 +196,8 @@ Forms tables come from the site's own code through the API, so they always match
 
 **Buttons.** A button's data says what to show, the sheet, the word's ID, the language and the script (`f:w:474:ru:l` = forms of word 474, asked in Russian, Latin script). Pressing the same button again within 10 minutes only shows a note. Buttons keep working after the bot restarts.
 
+**The switches under a word's tables** are those above the tables on interslavic.app: **Vse vrěmena** (also the imperfect, the pluperfect and the aorist) and **Staroslovjanske formy** (the dual, and the old declension of oko, nebo, imę, mati …), ✅ on, ⬜ off. Only those that change the word's tables are there (the API says which: `switches`; a plural-only noun has none). A switch's data ends with the switches that are on after the press (`F:w:474:ru:l:to`: t all the tenses, o the OCS forms), and the bot draws the same message again with them: in Telegram `editMessageText` with the rich message, or an ordinary message when its tables were one message; in Discord the message itself when its tables were one. Otherwise the new tables come as a new answer. A switch may be pressed again at once.
+
 **Telegram fallbacks.** Rich message with all features, then a simpler rich message, then ordinary HTML, then plain text. If Telegram answers 404 to rich messages, the bot stops trying them; if it answers 400 for one kind of message, that kind is dropped to the next level. The terminal logs `Telegram refused a rich message ...` with the reason.
 
 ## Tests
